@@ -523,45 +523,14 @@ class AISignalEngine:
     ) -> Optional[SignalComponent]:
         """Analyze using ML models (async)."""
         def _sync_analyze():
-            # ML disabled — no trained model available yet
-            return SignalComponent(
-                source='ml', signal=SignalType.HOLD,
-                confidence=0, weight=0,
-                details={'reason': 'ML disabled: no trained model'})
-        return await self._run_in_executor(_sync_analyze)
-            
-            if len(data) < 100:
-                return None
-            
-            close = data['close']
-            sma_20 = close.rolling(20).mean()
-            sma_50 = close.rolling(50).mean()
-            
-            if close.iloc[-1] > sma_20.iloc[-1] > sma_50.iloc[-1]:
-                signal = SignalType.BUY
-                confidence = 65
-                reason = "Bullish MA alignment"
-            elif close.iloc[-1] < sma_20.iloc[-1] < sma_50.iloc[-1]:
-                signal = SignalType.SELL
-                confidence = 65
-                reason = "Bearish MA alignment"
-            else:
-                signal = SignalType.HOLD
-                confidence = 50
-                reason = "Mixed MA signals"
-            
-            return SignalComponent(
-                source='ml',
-                signal=signal,
-                confidence=confidence,
-                weight=self.weights.get('ml', 0.25),
-                details={'reason': reason}
-            )
-        
-        try:
-            return await self._run_in_executor(_sync_analyze)
-        except Exception as e:
-            raise AnalysisError('ml', str(e), e)
+           # ML disabled - tidak ada model terlatih
+           logger.debug('ML engine disabled: no trained model')
+           return SignalComponent(
+               source='ml', signal=SignalType.HOLD,
+               confidence=0, weight=0,
+               details={'reason': 'ML disabled - awaiting trained model'}
+           )
+       return await self._run_in_executor(_sync_analyze)
     
     async def _analyze_patterns(
         self,
