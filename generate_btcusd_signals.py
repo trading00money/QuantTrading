@@ -45,19 +45,18 @@ INITIAL_CAPITAL = 10000.0    # Modal awal backtest
 # ============================================================
 
 def load_data_with_fallback(symbol, timeframe, start_date, end_date):
-“””
-Load data historis dengan multiple fallback:
-1. CCXT (Binance) jika tersedia
-2. yfinance jika tersedia
-3. Dummy data untuk testing
-“””
+
+#Load data historis dengan multiple fallback:
+#1. CCXT (Binance) jika tersedia
+#2. yfinance jika tersedia
+#3. Dummy data untuk testing
+
 # — Coba CCXT (Binance) —
 try:
 import ccxt
 logger.info(“Mencoba load data via CCXT (Binance)…”)
 exchange = ccxt.binance({‘enableRateLimit’: True})
 
-```
     # Normalize symbol: "BTC-USD" → "BTC/USDT"
     sym = symbol.upper().replace('-', '/')
     if sym == "BTC/USD":
@@ -135,13 +134,11 @@ df = pd.DataFrame({
 df.index.name = 'timestamp'
 
 return df
-```
 
 async def generate_signal(data, symbol, timeframe):
-“”“Generate signal menggunakan AISignalEngine.”””
+#“”“Generate signal menggunakan AISignalEngine.”””
 from core.signal_engine import AISignalEngine
 
-```
 engine = AISignalEngine({})
 signal = await engine.generate_signal(
     symbol=symbol,
@@ -150,13 +147,12 @@ signal = await engine.generate_signal(
     current_price=float(data['close'].iloc[-1])
 )
 return signal
-```
 
 def print_signal_report(signal):
 “”“Print signal report yang mudah dibaca.”””
 sig = signal.to_dict()
 
-```
+
 direction = sig['signal']
 if 'BUY' in direction:
     emoji, color_word = '🟢', 'BULLISH'
@@ -202,7 +198,6 @@ if sig.get('errors'):
     print(f"\n  ⚠️  Errors:")
     for err in sig['errors']:
         print(f"    ✗ {err}")
-```
 
 def run_simple_backtest(data):
 “”“Backtest sederhana tanpa dependensi backtester modul.”””
@@ -210,7 +205,6 @@ print(f”\n{’=’ * 60}”)
 print(f”  BACKTEST SEDERHANA (per-bar signal)”)
 print(f”{’=’ * 60}”)
 
-```
 from core.signal_engine import AISignalEngine
 engine = AISignalEngine({})
 
@@ -322,7 +316,6 @@ print(f”  Period:     {START_DATE} → {END_DATE or ‘today’}”)
 print(f”  Backtest:   {‘Ya’ if RUN_BACKTEST else ‘Tidak’}”)
 print(”=” * 60)
 
-```
 # ─── STEP 1: Load Data ───
 logger.info("Step 1: Loading data historis...")
 data = load_data_with_fallback(SYMBOL, TIMEFRAME, START_DATE, END_DATE)
@@ -362,7 +355,6 @@ print(f"\n{'=' * 60}")
 print(f"  Selesai. Signal di atas berdasarkan bar terakhir dataset.")
 print(f"  Untuk live signal, ubah END_DATE = None")
 print(f"{'=' * 60}")
-```
 
 if **name** == “**main**”:
 main()
