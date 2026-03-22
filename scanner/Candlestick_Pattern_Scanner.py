@@ -423,8 +423,8 @@ class CandlestickPatternScanner:
     
     def scan(
         self,
-        symbol=None,
         data: pd.DataFrame,
+        symbol=None,
         min_reliability: str = "medium",
         lookback: int = 50
     ) -> List[CandlestickPattern]:
