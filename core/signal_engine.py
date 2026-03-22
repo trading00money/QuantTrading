@@ -526,14 +526,17 @@ class AISignalEngine:
     ) -> Optional[SignalComponent]:
         """Analyze using ML models (async)."""
         def _sync_analyze():
-           # ML disabled - tidak ada model terlatih
-           logger.debug('ML engine disabled: no trained model')
-           return SignalComponent(
-               source='ml', signal=SignalType.HOLD,
-               confidence=0, weight=0,
-               details={'reason': 'ML disabled - awaiting trained model'}
-           )
-       return await self._run_in_executor(_sync_analyze)
+            # ML disabled - tidak ada model terlatih
+            logger.debug('ML engine disabled: no trained model')
+            return SignalComponent(
+                source='ml',
+                signal=SignalType.HOLD,
+                confidence=0,
+                weight=0,
+                details={'reason': 'ML disabled - awaiting trained model'}
+            )
+        
+        return await self._run_in_executor(_sync_analyze)
     
     async def _analyze_patterns(
         self,
