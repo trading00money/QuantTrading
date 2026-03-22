@@ -1,21 +1,20 @@
 # #!/usr/bin/env python3
-generate_btcusd_signals.py
+#generate_btcusd_signals.py
 
-Script standalone untuk generate signal BTCUSD dari data historis.
+#Script standalone untuk generate signal BTCUSD dari data historis.
 
-CARA PAKAI:
-1. Simpan file ini di ROOT PROJECT (sejajar dengan run.py)
-2. Jalankan: python generate_btcusd_signals.py
+#CARA PAKAI:
+#1. Simpan file ini di ROOT PROJECT (sejajar dengan run.py)
+#2. Jalankan: python generate_btcusd_signals.py
 
-KONFIGURASI:
-Ubah variabel di bagian KONFIGURASI di bawah.
+#KONFIGURASI:
+#Ubah variabel di bagian KONFIGURASI di bawah.
 
-OUTPUT:
-- Signal terakhir (BUY/SELL/HOLD + confidence)
-- Level entry, SL, TP
-- Komponen per-engine (Gann, Ehlers, Astro, ML, Pattern)
-- Opsional: jalankan backtest penuh
-“””
+#OUTPUT:
+#- Signal terakhir (BUY/SELL/HOLD + confidence)
+#- Level entry, SL, TP
+#- Komponen per-engine (Gann, Ehlers, Astro, ML, Pattern)
+#- Opsional: jalankan backtest penuh
 
 import os
 import sys
