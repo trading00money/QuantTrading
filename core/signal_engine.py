@@ -466,61 +466,56 @@ class AISignalEngine:
     ) -> Optional[SignalComponent]:
         """Analyze using Ehlers DSP indicators (async)."""
         def _sync_analyze():
-            if len(data) < 50:
-                return None
+            from modules.ehlers.fisher_transform import fisher_transform
+            from modules.ehlers.super_smoother import super_smoother
+            from modules.ehlers.mama import mama
             
-            signals = {'buy': 0, 'sell': 0}
+            signals = {'buy': 0, 'sell': 0, 'total': 0}
             
-            # Simple momentum check as fallback
-            close = data['close']
-            momentum = close.iloc[-1] / close.iloc[-10] - 1
-            
-            if momentum > 0.02:
+            # 1. Fisher Transform crossover (mean-reversion)
+            fisher_df = fisher_transform(data, period=10)
+            f_val = fisher_df['fisher'].iloc[-1]
+            f_sig = fisher_df['fisher_signal'].iloc[-1]
+            if f_val > f_sig and f_val < -1.0:     # Bullish di oversold zone
                 signals['buy'] += 2
-            elif momentum < -0.02:
+            elif f_val < f_sig and f_val > 1.0:     # Bearish di overbought zone
                 signals['sell'] += 2
+            signals['total'] += 2
             
-            # RSI-like calculation
-            delta = close.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-            rs = gain / loss
-            rsi = 100 - (100 / (1 + rs)).iloc[-1]
-            
-            if rsi < 30:
+            # 2. Super Smoother trend direction
+            ss = super_smoother(data['close'], period=20)
+            if ss.iloc[-1] > ss.iloc[-3]:
                 signals['buy'] += 1
-            elif rsi > 70:
+            elif ss.iloc[-1] < ss.iloc[-3]:
                 signals['sell'] += 1
+            signals['total'] += 1
             
-            total = signals['buy'] + signals['sell']
-            if total == 0:
-                return None
-            
-            if signals['buy'] > signals['sell']:
-                signal = SignalType.BUY
-                confidence = 50 + (signals['buy'] / total) * 40
-                reason = f"Ehlers bullish"
-            elif signals['sell'] > signals['buy']:
-                signal = SignalType.SELL
-                confidence = 50 + (signals['sell'] / total) * 40
-                reason = f"Ehlers bearish"
+            # 3. MAMA/FAMA crossover (adaptive trend)
+            mama_df = mama(data)
+            if mama_df['MAMA'].iloc[-1] > mama_df['FAMA'].iloc[-1]:
+                signals['buy'] += 1
             else:
-                signal = SignalType.HOLD
-                confidence = 50
-                reason = "Ehlers neutral"
+                signals['sell'] += 1
+            signals['total'] += 1
             
-            return SignalComponent(
-                source='ehlers',
-                signal=signal,
-                confidence=confidence,
-                weight=self.weights.get('ehlers', 0.20),
-                details={'reason': reason}
-            )
-        
-        try:
-            return await self._run_in_executor(_sync_analyze)
-        except Exception as e:
-            raise AnalysisError('ehlers', str(e), e)
+            # Hitung confidence berdasarkan agreement ratio
+            buy_ratio = signals['buy'] / signals['total']
+            sell_ratio = signals['sell'] / signals['total']
+            
+            if buy_ratio > sell_ratio:
+                return SignalComponent(
+                    source='ehlers', signal=SignalType.BUY,
+                    confidence=50 + (buy_ratio * 40),
+                    weight=self.weights.get('ehlers', 0.20),
+                    details={'fisher': f_val, 'fisher_signal': f_sig})
+            elif sell_ratio > buy_ratio:
+                return SignalComponent(
+                    source='ehlers', signal=SignalType.SELL,
+                    confidence=50 + (sell_ratio * 40),
+                    weight=self.weights.get('ehlers', 0.20),
+                    details={'fisher': f_val})
+            return None
+
     
     async def _analyze_ml(
         self,
