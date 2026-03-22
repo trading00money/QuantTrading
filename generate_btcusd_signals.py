@@ -1,5 +1,4 @@
 # #!/usr/bin/env python3
-“””
 generate_btcusd_signals.py
 
 Script standalone untuk generate signal BTCUSD dari data historis.
