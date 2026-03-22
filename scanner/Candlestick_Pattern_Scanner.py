@@ -573,8 +573,8 @@ class CandlestickPatternScanner:
     
     def scan_all_timeframes(
         self,
-        symbol=None,
         data_dict: Dict[str, pd.DataFrame],
+        symbol=None,
         min_reliability: str = "medium"
     ) -> Dict[str, List[CandlestickPattern]]:
         """
