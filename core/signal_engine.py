@@ -540,7 +540,7 @@ class AISignalEngine:
     
     async def _analyze_patterns(
         self,
-        data: pd.DataFrame
+        data: pd.DataFrame,
         symbol=None
     ) -> Optional[SignalComponent]:
         """Analyze chart patterns (async)."""
