@@ -572,38 +572,24 @@ class AISignalEngine:
             if len(data) < 20:
                 return None
             
-            close = data['close'].values
-            high = data['high'].values
-            low = data['low'].values
+            from scanner.Candlestick_Pattern_Scanner import CandlestickPatternScanner
+            scanner = CandlestickPatternScanner({})
+            patterns = scanner.scan(data, symbol='')
             
-            signal_bias = 0
-            patterns = []
+            bullish_count = sum(1 for p in patterns 
+                if p.type.value in ['bullish_reversal', 'bullish_continuation'])
+            bearish_count = sum(1 for p in patterns 
+                if p.type.value in ['bearish_reversal', 'bearish_continuation'])
             
-            # Higher highs/lows trend
-            if high[-1] > high[-5] and low[-1] > low[-5]:
-                signal_bias += 1
-                patterns.append("Uptrend")
-            elif high[-1] < high[-5] and low[-1] < low[-5]:
-                signal_bias -= 1
-                patterns.append("Downtrend")
-            
-            if signal_bias > 0:
-                signal = SignalType.BUY
-                confidence = 55
-            elif signal_bias < 0:
-                signal = SignalType.SELL
-                confidence = 55
-            else:
-                signal = SignalType.HOLD
-                confidence = 50
-            
-            return SignalComponent(
-                source='pattern',
-                signal=signal,
-                confidence=confidence,
-                weight=self.weights.get('pattern', 0.10),
-                details={'reason': ', '.join(patterns) if patterns else 'No clear pattern'}
-            )
+            if bullish_count > bearish_count:
+                best = max([p for p in patterns if 'bullish' in p.type.value],
+                           key=lambda x: x.reliability.value, default=None)
+                confidence = {'low': 50, 'medium': 60, 'high': 72, 'very_high': 85}
+                return SignalComponent(
+                    source='pattern', signal=SignalType.BUY,
+                    confidence=confidence.get(best.reliability.value, 55),
+                    weight=self.weights.get('pattern', 0.15),
+                    details={'patterns': [p.name for p in patterns]})
         
         try:
             return await self._run_in_executor(_sync_analyze)
