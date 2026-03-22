@@ -460,61 +460,64 @@ class AISignalEngine:
         except Exception as e:
             raise AnalysisError('astro', str(e), e)
     
-    async def _analyze_ehlers(
-        self,
-        data: pd.DataFrame
-    ) -> Optional[SignalComponent]:
-        """Analyze using Ehlers DSP indicators (async)."""
-        def _sync_analyze():
-            from modules.ehlers.fisher_transform import fisher_transform
-            from modules.ehlers.super_smoother import super_smoother
-            from modules.ehlers.mama import mama
-            
-            signals = {'buy': 0, 'sell': 0, 'total': 0}
-            
-            # 1. Fisher Transform crossover (mean-reversion)
-            fisher_df = fisher_transform(data, period=10)
-            f_val = fisher_df['fisher'].iloc[-1]
-            f_sig = fisher_df['fisher_signal'].iloc[-1]
-            if f_val > f_sig and f_val < -1.0:     # Bullish di oversold zone
-                signals['buy'] += 2
-            elif f_val < f_sig and f_val > 1.0:     # Bearish di overbought zone
-                signals['sell'] += 2
-            signals['total'] += 2
-            
-            # 2. Super Smoother trend direction
-            ss = super_smoother(data['close'], period=20)
-            if ss.iloc[-1] > ss.iloc[-3]:
-                signals['buy'] += 1
-            elif ss.iloc[-1] < ss.iloc[-3]:
-                signals['sell'] += 1
-            signals['total'] += 1
-            
-            # 3. MAMA/FAMA crossover (adaptive trend)
-            mama_df = mama(data)
-            if mama_df['MAMA'].iloc[-1] > mama_df['FAMA'].iloc[-1]:
-                signals['buy'] += 1
-            else:
-                signals['sell'] += 1
-            signals['total'] += 1
-            
-            # Hitung confidence berdasarkan agreement ratio
-            buy_ratio = signals['buy'] / signals['total']
-            sell_ratio = signals['sell'] / signals['total']
-            
-            if buy_ratio > sell_ratio:
-                return SignalComponent(
-                    source='ehlers', signal=SignalType.BUY,
-                    confidence=50 + (buy_ratio * 40),
-                    weight=self.weights.get('ehlers', 0.20),
-                    details={'fisher': f_val, 'fisher_signal': f_sig})
-            elif sell_ratio > buy_ratio:
-                return SignalComponent(
-                    source='ehlers', signal=SignalType.SELL,
-                    confidence=50 + (sell_ratio * 40),
-                    weight=self.weights.get('ehlers', 0.20),
-                    details={'fisher': f_val})
-            return None
+    async def _analyze_ehlers(self, data: pd.DataFrame):
+       def _sync_analyze():
+           if len(data) < 50: return None
+     
+           from modules.ehlers.fisher_transform import fisher_transform
+           from modules.ehlers.super_smoother import super_smoother
+           from modules.ehlers.mama import mama
+     
+           signals = {'buy': 0, 'sell': 0, 'total': 0}
+     
+           # 1. Fisher Transform crossover (mean-reversion)
+           fisher_df = fisher_transform(data, period=10)
+           f_val = fisher_df['fisher'].iloc[-1]
+           f_sig = fisher_df['fisher_signal'].iloc[-1]
+           if f_val > f_sig and f_val < -1.0:
+               signals['buy'] += 2    # Bullish di zona oversold
+           elif f_val < f_sig and f_val > 1.0:
+               signals['sell'] += 2   # Bearish di zona overbought
+           signals['total'] += 2
+     
+           # 2. Super Smoother trend direction
+           ss = super_smoother(data['close'], period=20)
+           if ss.iloc[-1] > ss.iloc[-3]: signals['buy'] += 1
+           elif ss.iloc[-1] < ss.iloc[-3]: signals['sell'] += 1
+           signals['total'] += 1
+     
+           # 3. MAMA/FAMA crossover (adaptive trend)
+           mama_df = mama(data)
+           if mama_df['MAMA'].iloc[-1] > mama_df['FAMA'].iloc[-1]:
+               signals['buy'] += 1
+           else:
+               signals['sell'] += 1
+           signals['total'] += 1
+     
+           # Hitung confidence berdasarkan agreement
+           if signals['total'] == 0: return None
+           buy_ratio = signals['buy'] / signals['total']
+           sell_ratio = signals['sell'] / signals['total']
+     
+           if buy_ratio > sell_ratio:
+               return SignalComponent(
+                   source='ehlers', signal=SignalType.BUY,
+                   confidence=50 + (buy_ratio * 40),
+                   weight=self.weights.get('ehlers', 0.30),
+                   details={'reason': f'Ehlers bullish ({signals["buy"]}/{signals["total"]})',
+                            'fisher': f_val, 'fisher_signal': f_sig})
+           elif sell_ratio > buy_ratio:
+               return SignalComponent(
+                   source='ehlers', signal=SignalType.SELL,
+                   confidence=50 + (sell_ratio * 40),
+                   weight=self.weights.get('ehlers', 0.30),
+                   details={'reason': f'Ehlers bearish'})
+           return None
+     
+       try:
+           return await self._run_in_executor(_sync_analyze)
+       except Exception as e:
+           raise AnalysisError('ehlers', str(e), e)
 
     
     async def _analyze_ml(
