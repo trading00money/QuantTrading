@@ -121,11 +121,11 @@ class AISignalEngine:
     
     # Default weights for each component
     DEFAULT_WEIGHTS = {
-        'gann': 0.25,
-        'astro': 0.15,
-        'ehlers': 0.20,
-        'ml': 0.25,
-        'pattern': 0.10,
+        'gann': 0.30,       # ← naik 5%
+        'astro': 0.10,      # ← turun 5% (belum tervalidasi)
+        'ehlers': 0.30,     # ← naik 10% (setelah fix QW1)
+        'ml': 0.00,         # ← DISABLED sampai model sungguhan siap
+        'pattern': 0.15,    # ← naik 5% (setelah fix QW3)
         'options_flow': 0.05
     }
     
@@ -523,6 +523,13 @@ class AISignalEngine:
     ) -> Optional[SignalComponent]:
         """Analyze using ML models (async)."""
         def _sync_analyze():
+            # ML disabled — no trained model available yet
+            return SignalComponent(
+                source='ml', signal=SignalType.HOLD,
+                confidence=0, weight=0,
+                details={'reason': 'ML disabled: no trained model'})
+        return await self._run_in_executor(_sync_analyze)
+            
             if len(data) < 100:
                 return None
             
