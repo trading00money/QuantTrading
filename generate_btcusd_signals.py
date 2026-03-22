@@ -35,10 +35,10 @@ sys.path.insert(0, PROJECT_ROOT)
 
 # ============================================================
 
-SYMBOL = “BTC-USD”           # Symbol untuk Yahoo Finance / CCXT
-TIMEFRAME = “1d”             # 1d, 4h, 1h, 15m, 5m
-START_DATE = “2023-01-01”    # Awal data historis
-END_DATE = “2024-01-01”      # Akhir data historis (None = hari ini)
+SYMBOL = "BTC-USD"           # Symbol untuk Yahoo Finance / CCXT
+TIMEFRAME = "1d"             # 1d, 4h, 1h, 15m, 5m
+START_DATE = "2023-01-01"    # Awal data historis
+END_DATE = "2024-01-01"      # Akhir data historis (None = hari ini)
 RUN_BACKTEST = True          # True = jalankan backtest juga
 INITIAL_CAPITAL = 10000.0    # Modal awal backtest
 
@@ -54,7 +54,7 @@ def load_data_with_fallback(symbol, timeframe, start_date, end_date):
 # — Coba CCXT (Binance) —
 try:
 import ccxt
-logger.info(“Mencoba load data via CCXT (Binance)…”)
+logger.info("Mencoba load data via CCXT (Binance)…”)
 exchange = ccxt.binance({‘enableRateLimit’: True})
 
     # Normalize symbol: "BTC-USD" → "BTC/USDT"
