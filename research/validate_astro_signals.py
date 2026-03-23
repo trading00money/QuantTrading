@@ -50,3 +50,9 @@ def validate_astro_correlation(price_data, significance=0.05):
     else:
         print("✅ Astro signifikan")
         return True
+        
+if __name__ == "__main__":
+    if df is None:
+        print("❌ Data gagal di-load")
+    else:
+        validate_astro_correlation(df)
