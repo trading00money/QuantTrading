@@ -1,7 +1,9 @@
 import pandas as pd
 from scipy import stats
 from modules.astro.synodic_cycles import SynodicCycleCalculator
+from download_historical_data import load_historical_data
 
+df = load_historical_data("BTC-USD", "1d", "2021-01-01", "2025-01-01")
 
 def validate_astro_correlation(price_data, significance=0.05):
     """Test apakah astro signals berkorelasi dengan returns."""
