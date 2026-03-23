@@ -6,27 +6,47 @@ from download_historical_data import load_historical_data
 df = load_historical_data("BTC-USD", "1d", "2021-01-01", "2025-01-01")
 
 def validate_astro_correlation(price_data, significance=0.05):
-    """Test apakah astro signals berkorelasi dengan returns."""
 
     synodic = SynodicCycleCalculator()
 
-    # TODO: generate astro signals untuk setiap bar
-    # TODO: hitung returns 5-hari setelah setiap signal
+    # Generate astro signal
+    price_data['astro_signal'] = synodic.generate_signal(price_data)
 
-    bullish_returns = []   # Returns setelah sinyal bullish
-    random_returns = []    # Returns random (baseline)
+    # Return masa depan
+    price_data['return_5d'] = price_data['close'].pct_change(5).shift(-5)
 
-    # Safety check (hindari crash)
-    if len(bullish_returns) == 0 or len(random_returns) == 0:
-        print("Data tidak cukup untuk uji statistik")
+    # Ambil hanya saat BUY
+    bullish_returns = price_data.loc[
+        price_data['astro_signal'] == 1,
+        'return_5d'
+    ].dropna()
+
+    if len(bullish_returns) < 30:
+        print("Sample terlalu kecil")
         return False
 
-    t_stat, p_value = stats.ttest_ind(bullish_returns, random_returns)
+    # Baseline random
+    random_returns = price_data['return_5d'].dropna().sample(len(bullish_returns))
 
-    if p_value > significance:
-        print(f"Astro TIDAK signifikan (p={p_value:.4f})")
-        print("REKOMENDASI: set astro weight ke 0")
+    # Statistical test (WAJIB pakai ini)
+    t_stat, p_value = stats.ttest_ind(
+        bullish_returns,
+        random_returns,
+        equal_var=False
+    )
+
+    # Tambahan penting
+    mean_return = bullish_returns.mean()
+    winrate = (bullish_returns > 0).mean()
+
+    print(f"Sample: {len(bullish_returns)}")
+    print(f"Mean return: {mean_return:.5f}")
+    print(f"Winrate: {winrate:.2%}")
+    print(f"p-value: {p_value:.4f}")
+
+    if p_value > significance or mean_return <= 0:
+        print("❌ Astro TIDAK signifikan → weight = 0")
         return False
     else:
-        print(f"Astro signifikan (p={p_value:.4f})")
+        print("✅ Astro signifikan")
         return True
