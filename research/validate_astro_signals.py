@@ -38,7 +38,7 @@ class AstroSignalGenerator:
 
         signal = pd.Series(0, index=df.index)
 
-        strong_cluster = clusters["normalized_score"] > 70
+        strong_cluster = clusters["normalized_score"] > 40
 
         for i in range(2, len(df) - 2):
 
