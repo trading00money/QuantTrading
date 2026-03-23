@@ -591,41 +591,68 @@ class AISignalEngine:
         total_attr = sum(attribution.values()) or 1
         return {k: round(v / total_attr * 100, 1) for k, v in attribution.items()}
     
-    def _combine_signals(self, components: List[SignalComponent]) -> Tuple[SignalType, float, SignalStrength]:
-        """Combine all signal components into final signal."""
-        # Filter out failed components
+    def apply_disagreement_penalty(components: List[SignalComponent]) -> float:
+        valid = [c for c in components if c.error is None and c.weight > 0]
+        if len(valid) < 2:
+            return 1.0
+    
+        buy_count = sum(1 for c in valid if c.signal in [SignalType.BUY, SignalType.STRONG_BUY])
+        sell_count = sum(1 for c in valid if c.signal in [SignalType.SELL, SignalType.STRONG_SELL])
+    
+        min_consensus = max(2, (len(valid) + 1) // 2)
+        majority = max(buy_count, sell_count)
+    
+        if buy_count >= 2 and sell_count >= 2:
+            return 0.5
+    
+        if majority < min_consensus:
+            return 0.7
+    
+        return 1.0
+    
+    
+    def combine_signals_fixed(components: List[SignalComponent]) -> Tuple[SignalType, float, SignalStrength]:
         valid_components = [c for c in components if c.error is None and c.weight > 0]
-        
+    
         if not valid_components:
             return SignalType.HOLD, 50.0, SignalStrength.WEAK
-        
+    
         buy_score = 0
         sell_score = 0
         total_weight = 0
-        
+    
         for comp in valid_components:
             weight = comp.weight * (comp.confidence / 100)
             total_weight += comp.weight
-            
+    
             if comp.signal in [SignalType.BUY, SignalType.STRONG_BUY]:
                 buy_score += weight
             elif comp.signal in [SignalType.SELL, SignalType.STRONG_SELL]:
                 sell_score += weight
-        
+    
         if total_weight > 0:
             buy_score /= total_weight
             sell_score /= total_weight
-        
-        if buy_score > sell_score and buy_score > 0.4:
+    
+        penalty = apply_disagreement_penalty(components)
+        buy_score *= penalty
+        sell_score *= penalty
+    
+        if buy_score > 0.3 and sell_score > 0.3:
+            ratio = min(buy_score, sell_score) / max(buy_score, sell_score)
+            if ratio > 0.6:
+                return SignalType.HOLD, 50.0, SignalStrength.WEAK
+    
+        if buy_score > sell_score and buy_score > 0.55:
             signal = SignalType.STRONG_BUY if buy_score > 0.7 else SignalType.BUY
             confidence = buy_score * 100
-        elif sell_score > buy_score and sell_score > 0.4:
+        elif sell_score > buy_score and sell_score > 0.55:
             signal = SignalType.STRONG_SELL if sell_score > 0.7 else SignalType.SELL
             confidence = sell_score * 100
         else:
             signal = SignalType.HOLD
             confidence = 50
-        
+    
         if confidence >= 80:
             strength = SignalStrength.VERY_STRONG
         elif confidence >= 65:
@@ -634,7 +661,7 @@ class AISignalEngine:
             strength = SignalStrength.MODERATE
         else:
             strength = SignalStrength.WEAK
-        
+    
         return signal, min(95, confidence), strength
     
     def _calculate_levels(self, data: pd.DataFrame, signal: SignalType, current_price: float) -> Tuple[float, float, float]:
