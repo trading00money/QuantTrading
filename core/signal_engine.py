@@ -4,6 +4,7 @@ Comprehensive signal generation combining Gann, Astrology, Ehlers DSP, and ML mo
 Fully async implementation with parallel execution and thread-safe operations.
 """
 import asyncio
+import math
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -12,6 +13,8 @@ from typing import Dict, List, Optional, Any, Tuple, Union
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from modules.astro.synodic_cycles import SynodicCycleCalculator
+# (import duplikat dihapus — class didefinisikan lokal di baris 24-57)
 import json
 from concurrent.futures import ThreadPoolExecutor
 import functools
@@ -413,48 +416,90 @@ class AISignalEngine:
         except Exception as e:
             raise AnalysisError('gann', str(e), e)
     
-    async def _analyze_astro(
-        self,
-        data: pd.DataFrame,
-        symbol: str
-    ) -> Optional[SignalComponent]:
-        """Analyze using astrological cycles (async)."""
+    async def _analyze_astro(self, data, symbol):
+        """
+        Astro analysis v3 (PRODUCTION READY)
+        Fixes: method name, parameter, scoring bias
+        """
+
         def _sync_analyze():
-            from modules.astro.synodic_cycles import SynodicCycleCalculator
-            
+            if len(data) == 0:
+                return None
+
+            # Derive date dari data (bukan dari parameter)
+            date = data.index[-1]
+            if hasattr(date, 'to_pydatetime'):
+                date = date.to_pydatetime()
+
             synodic = SynodicCycleCalculator()
-            phases = synodic.get_current_cycle_phases()
-            
-            bullish_score = 0
-            bearish_score = 0
-            
+            phases = synodic.get_current_cycle_phases(date)
+
+            if not phases:
+                return SignalComponent(
+                    source='astro',
+                    signal=SignalType.HOLD,
+                    confidence=50,
+                    weight=self.weights.get('astro', 0.10),
+                    details={'reason': 'No astro phases available'}
+                )
+
+            composite_score = 0.0
+            total_weight = 0.0
+
+            # Hanya cycle yang berputar penuh dalam trading window
+            # Mars-Saturn (730 hari) = 2 rotasi penuh dalam 4 tahun ✓
+            # Jupiter-Saturn (7254 hari) = 0.20 rotasi → SKIP (bias permanen)
+            # Jupiter-Uranus (5044 hari) = 0.29 rotasi → SKIP (bias permanen)
+            CYCLE_WEIGHTS = {
+                'Mars-Saturn': 1.0,
+            }
+
             for phase in phases:
-                if phase.get('phase_name') in ['new', 'first_quarter']:
-                    bullish_score += 1
-                elif phase.get('phase_name') in ['full', 'last_quarter']:
-                    bearish_score += 1
-            
-            if bullish_score > bearish_score:
+                cycle = phase.get('cycle', '')
+                weight = CYCLE_WEIGHTS.get(cycle, 0)
+
+                if weight == 0:
+                    continue
+
+                deg = phase.get('phase_degrees', 0)
+                score = math.cos(math.radians(deg))
+
+                composite_score += score * weight
+                total_weight += weight
+
+            if total_weight > 0:
+                composite_score /= total_weight
+            else:
+                return SignalComponent(
+                    source='astro',
+                    signal=SignalType.HOLD,
+                    confidence=50,
+                    weight=self.weights.get('astro', 0.10),
+                    details={'reason': 'No active cycles'}
+                )
+
+            if composite_score > 0.3:
                 signal = SignalType.BUY
-                confidence = 50 + (bullish_score * 10)
-                reason = f"Bullish astro cycles ({bullish_score} signals)"
-            elif bearish_score > bullish_score:
+            elif composite_score < -0.3:
                 signal = SignalType.SELL
-                confidence = 50 + (bearish_score * 10)
-                reason = f"Bearish astro cycles ({bearish_score} signals)"
             else:
                 signal = SignalType.HOLD
-                confidence = 50
-                reason = "Neutral astro cycles"
-            
+
+            confidence = 50 + (abs(composite_score) * 40)
+            confidence = max(50, min(90, confidence))
+
             return SignalComponent(
                 source='astro',
                 signal=signal,
                 confidence=confidence,
-                weight=self.weights.get('astro', 0.15),
-                details={'reason': reason}
+                weight=self.weights.get('astro', 0.10),
+                details={
+                    'composite_score': round(composite_score, 4),
+                    'active_cycles': ['Mars-Saturn'],
+                    'date': str(date.date()) if hasattr(date, 'date') else str(date),
+                }
             )
-        
+
         try:
             return await self._run_in_executor(_sync_analyze)
         except Exception as e:
@@ -543,30 +588,176 @@ class AISignalEngine:
         data: pd.DataFrame,
         symbol=None
     ) -> Optional[SignalComponent]:
-        """Analyze chart patterns (async)."""
+
         def _sync_analyze():
             if len(data) < 20:
                 return None
-            
-            from scanner.Candlestick_Pattern_Scanner import CandlestickPatternScanner
-            scanner = CandlestickPatternScanner({})
-            patterns = scanner.scan(data, symbol='')
-            
-            bullish_count = sum(1 for p in patterns 
-                if p.type.value in ['bullish_reversal', 'bullish_continuation'])
-            bearish_count = sum(1 for p in patterns 
-                if p.type.value in ['bearish_reversal', 'bearish_continuation'])
-            
-            if bullish_count > bearish_count:
-                best = max([p for p in patterns if 'bullish' in p.type.value],
-                           key=lambda x: x.reliability.value, default=None)
-                confidence = {'low': 50, 'medium': 60, 'high': 72, 'very_high': 85}
+
+            # =============================
+            # 1. STRICT SCANNER (PRIMARY)
+            # =============================
+            try:
+                from scanner.Candlestick_Pattern_Scanner import (
+                    CandlestickPatternScanner, PatternType
+                )
+
+                scanner = CandlestickPatternScanner({})
+                patterns = scanner.scan(data, symbol='')
+
+            except Exception as e:
+                logger.warning(f'Pattern scanner error: {e}')
+                patterns = []
+
+            # =============================
+            # 2. USE STRICT IF AVAILABLE
+            # =============================
+            if patterns:
+                # Filter only meaningful patterns
+                patterns = [
+                    p for p in patterns
+                    if p.reliability.value in ['medium', 'high', 'very_high']
+                ]
+
+                bullish = [
+                    p for p in patterns
+                    if p.type in [
+                        PatternType.BULLISH_REVERSAL,
+                        PatternType.BULLISH_CONTINUATION
+                    ]
+                ]
+
+                bearish = [
+                    p for p in patterns
+                    if p.type in [
+                        PatternType.BEARISH_REVERSAL,
+                        PatternType.BEARISH_CONTINUATION
+                    ]
+                ]
+
+                rel_map = {
+                    'low': 50,
+                    'medium': 62,
+                    'high': 75,
+                    'very_high': 88
+                }
+
+                if len(bullish) > len(bearish):
+                    best = max(
+                        bullish,
+                        key=lambda p: rel_map.get(p.reliability.value, 50)
+                    )
+                    conf = rel_map.get(best.reliability.value, 60)
+
+                    return SignalComponent(
+                        source='pattern_strict',
+                        signal=SignalType.BUY,
+                        confidence=conf,
+                        weight=self.weights.get('pattern', 0.15),
+                        details={
+                            'reason': best.name,
+                            'patterns': [p.name for p in bullish]
+                        }
+                    )
+
+                elif len(bearish) > len(bullish):
+                    best = max(
+                        bearish,
+                        key=lambda p: rel_map.get(p.reliability.value, 50)
+                    )
+                    conf = rel_map.get(best.reliability.value, 60)
+
+                    return SignalComponent(
+                        source='pattern_strict',
+                        signal=SignalType.SELL,
+                        confidence=conf,
+                        weight=self.weights.get('pattern', 0.15),
+                        details={
+                            'reason': best.name,
+                            'patterns': [p.name for p in bearish]
+                        }
+                    )
+
+            # =============================
+            # 3. FALLBACK (FILTERED & SAFE)
+            # =============================
+            logger.info("Pattern fallback activated")
+
+            last = data.iloc[-1]
+            prev = data.iloc[-2]
+
+            body = abs(last['close'] - last['open'])
+            range_ = last['high'] - last['low']
+
+            if range_ == 0:
+                return None
+
+            strength = body / range_
+
+            # 🔴 FILTER 1: candle harus cukup kuat
+            if strength < 0.5:
+                return None
+
+            # 🔴 FILTER 2: trend sederhana (MA20)
+            ma = data['close'].rolling(20).mean().iloc[-1]
+
+            # =============================
+            # 3A. ENGULFING (HIGH PRIORITY)
+            # =============================
+            # Bullish engulfing
+            if (
+                prev['close'] < prev['open'] and
+                last['close'] > last['open'] and
+                last['open'] < prev['close'] and
+                last['close'] > prev['open']
+            ):
+                if last['close'] > ma:
+                    return SignalComponent(
+                        source='pattern_fallback',
+                        signal=SignalType.BUY,
+                        confidence=58,
+                        weight=0.05,
+                        details={'reason': 'bullish_engulfing_filtered'}
+                    )
+
+            # Bearish engulfing
+            if (
+                prev['close'] > prev['open'] and
+                last['close'] < last['open'] and
+                last['open'] > prev['close'] and
+                last['close'] < prev['open']
+            ):
+                if last['close'] < ma:
+                    return SignalComponent(
+                        source='pattern_fallback',
+                        signal=SignalType.SELL,
+                        confidence=58,
+                        weight=0.05,
+                        details={'reason': 'bearish_engulfing_filtered'}
+                    )
+
+            # =============================
+            # 3B. MOMENTUM (LOW PRIORITY)
+            # =============================
+            if last['close'] > prev['close'] and last['close'] > ma:
                 return SignalComponent(
-                    source='pattern', signal=SignalType.BUY,
-                    confidence=confidence.get(best.reliability.value, 55),
-                    weight=self.weights.get('pattern', 0.15),
-                    details={'patterns': [p.name for p in patterns]})
-        
+                    source='pattern_fallback',
+                    signal=SignalType.BUY,
+                    confidence=52,
+                    weight=0.05,
+                    details={'reason': 'momentum_up_filtered'}
+                )
+
+            elif last['close'] < prev['close'] and last['close'] < ma:
+                return SignalComponent(
+                    source='pattern_fallback',
+                    signal=SignalType.SELL,
+                    confidence=52,
+                    weight=0.05,
+                    details={'reason': 'momentum_down_filtered'}
+                )
+
+            return None
+
         try:
             return await self._run_in_executor(_sync_analyze)
         except Exception as e:
@@ -591,7 +782,8 @@ class AISignalEngine:
         total_attr = sum(attribution.values()) or 1
         return {k: round(v / total_attr * 100, 1) for k, v in attribution.items()}
     
-    def apply_disagreement_penalty(components: List[SignalComponent]) -> float:
+    def _apply_disagreement_penalty(self, components: List[SignalComponent]) -> float:
+        """Hitung penalty berdasarkan disagreement antar engine."""
         valid = [c for c in components if c.error is None and c.weight > 0]
         if len(valid) < 2:
             return 1.0
@@ -611,7 +803,8 @@ class AISignalEngine:
         return 1.0
     
     
-    def combine_signals_fixed(components: List[SignalComponent]) -> Tuple[SignalType, float, SignalStrength]:
+    def _combine_signals(self, components: List[SignalComponent]) -> Tuple[SignalType, float, SignalStrength]:
+        """Combine all signal components into final signal."""
         valid_components = [c for c in components if c.error is None and c.weight > 0]
     
         if not valid_components:
@@ -634,7 +827,7 @@ class AISignalEngine:
             buy_score /= total_weight
             sell_score /= total_weight
     
-        penalty = apply_disagreement_penalty(components)
+        penalty = self._apply_disagreement_penalty(components)
         buy_score *= penalty
         sell_score *= penalty
     

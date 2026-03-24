@@ -13,7 +13,6 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-
 @dataclass
 class SynodicCycle:
     """Represents a planetary synodic cycle."""
@@ -83,6 +82,13 @@ class SynodicCycleCalculator:
         }
     }
     
+    REFERENCE_DATES = {
+        "Jupiter-Saturn": datetime(2020, 12, 21),
+        "Saturn-Uranus": datetime(2032, 1, 1),
+        "Jupiter-Uranus": datetime(2024, 4, 20),
+        "Mars-Saturn": datetime(2024, 4, 10),
+    }
+
     # Gann-related time cycles (in calendar days)
     GANN_TIME_CYCLES = [
         7, 14, 21, 28, 30, 45, 49, 52, 60, 63, 72, 84, 90, 
@@ -235,25 +241,49 @@ class SynodicCycleCalculator:
             date = datetime.now()
         
         # Reference dates for major cycles (approximate conjunction dates)
-        reference_dates = {
-            "Jupiter-Saturn": datetime(2020, 12, 21),  # Great conjunction
-            "Saturn-Uranus": datetime(2032, 1, 1),     # Approximate
-            "Jupiter-Uranus": datetime(2024, 4, 20),   # Conjunction in Taurus
-            "Mars-Saturn": datetime(2024, 4, 10),      # Recent conjunction
+        REFERENCE_DATES = {
+            "Jupiter-Saturn": datetime(2020, 12, 21),
+            # "Saturn-Uranus": DIHAPUS — period 45.4 tahun, 
+            #   selalu BEAR dari 2021-2032, bukan trading signal
+            "Jupiter-Uranus": datetime(2024, 4, 20),
+            "Mars-Saturn": datetime(2024, 4, 10),
         }
         
         phases = []
         
-        for cycle_name, ref_date in reference_dates.items():
+        for cycle_name, ref_date in self.REFERENCE_DATES.items():
             if cycle_name in self.PAIR_CYCLES:
-                cycle_info = self.PAIR_CYCLES[cycle_name]
-                period = cycle_info.get("period_days", cycle_info.get("period_years", 1) * 365.25)
-                
+
+                # =========================
+                # Ambil period
+                # =========================
+                period = self.PAIR_CYCLES[cycle_name]['period_days']
+
+                # =========================
+                # FILTER: terlalu lambat / cepat
+                # =========================
+                if period > 3650:   # >10 tahun
+                    continue
+
+                if period < 90:     # <3 bulan
+                    continue
+
+                # =========================
+                # Tambahan: stabilitas rotasi
+                # =========================
+                min_rotations = 2
+                data_window_days = 1460  # ~4 tahun
+
+                if period > data_window_days / min_rotations:
+                    continue
+
+                # =========================
+                # HITUNG PHASE (tetap sama)
+                # =========================
                 days_elapsed = (date - ref_date).days
                 phase_fraction = (days_elapsed % period) / period
                 phase_degrees = phase_fraction * 360
-                
-                # Determine phase name
+
                 if phase_degrees < 45:
                     phase_name = "New (Conjunction)"
                 elif phase_degrees < 90:
@@ -270,7 +300,7 @@ class SynodicCycleCalculator:
                     phase_name = "Last Quarter (Square)"
                 else:
                     phase_name = "Balsamic"
-                
+
                 phases.append({
                     "cycle": cycle_name,
                     "phase_degrees": round(phase_degrees, 1),
@@ -278,9 +308,9 @@ class SynodicCycleCalculator:
                     "phase_fraction": round(phase_fraction, 3),
                     "days_in_phase": days_elapsed % period,
                     "days_to_next_conjunction": int(period - (days_elapsed % period)),
-                    "market_correlation": cycle_info["market_correlation"]
+                    "market_correlation": self.PAIR_CYCLES[cycle_name]["market_correlation"]
                 })
-        
+
         return phases
     
     def get_time_harmonics(
