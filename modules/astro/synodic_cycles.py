@@ -251,7 +251,7 @@ class SynodicCycleCalculator:
         
         phases = []
         
-        for cycle_name, ref_date in self.REFERENCE_DATES.items():
+        for cycle_name, ref_date in REFERENCE_DATES.items():
             if cycle_name in self.PAIR_CYCLES:
 
                 # =========================
@@ -274,13 +274,17 @@ class SynodicCycleCalculator:
                 min_rotations = 2
                 data_window_days = 1460  # ~4 tahun
 
-                if period > data_window_days / min_rotations:
-                    continue
+                # if period > data_window_days / min_rotations * 1.1:
+                #    continue
 
+                print("PHASE COUNT:", len(phases))
                 # =========================
                 # HITUNG PHASE (tetap sama)
                 # =========================
                 days_elapsed = (date - ref_date).days
+
+                # FIX: normalize supaya selalu positif
+                days_elapsed = days_elapsed % period
                 phase_fraction = (days_elapsed % period) / period
                 phase_degrees = phase_fraction * 360
 
@@ -310,7 +314,7 @@ class SynodicCycleCalculator:
                     "days_to_next_conjunction": int(period - (days_elapsed % period)),
                     "market_correlation": self.PAIR_CYCLES[cycle_name]["market_correlation"]
                 })
-
+                
         return phases
     
     def get_time_harmonics(
@@ -402,3 +406,5 @@ if __name__ == "__main__":
     print("\nTime Harmonic Projections:")
     for h in harmonics[:8]:
         print(f"  {h['date_str']}: {h['days']} days ({h['cycle']}x{h['multiple']}) - {h['significance']}")
+
+    print(f"{cycle_name} | days={days_elapsed} | deg={phase_degrees}")

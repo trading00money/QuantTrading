@@ -410,7 +410,8 @@ class AISignalEngine:
                     'nearest_resistance': nearest_resistance
                 }
             )
-        
+            print("DATE:", date)
+            print("PHASES RAW:", phases)
         try:
             return await self._run_in_executor(_sync_analyze)
         except Exception as e:
@@ -446,18 +447,14 @@ class AISignalEngine:
             composite_score = 0.0
             total_weight = 0.0
 
-            # Hanya cycle yang berputar penuh dalam trading window
-            # Mars-Saturn (730 hari) = 2 rotasi penuh dalam 4 tahun ✓
-            # Jupiter-Saturn (7254 hari) = 0.20 rotasi → SKIP (bias permanen)
-            # Jupiter-Uranus (5044 hari) = 0.29 rotasi → SKIP (bias permanen)
             CYCLE_WEIGHTS = {
-                'Mars-Saturn': 1.0,
+                'marssaturn': 1.0,
             }
 
-            for phase in phases:
-                cycle = phase.get('cycle', '')
+            for phase in phases:    
+                cycle = phase.get('cycle', '').lower().replace(" ", "").replace("-", "")
                 weight = CYCLE_WEIGHTS.get(cycle, 0)
-
+                print("CYCLE:", cycle, "WEIGHT:", weight)
                 if weight == 0:
                     continue
 
@@ -478,15 +475,30 @@ class AISignalEngine:
                     details={'reason': 'No active cycles'}
                 )
 
-            if composite_score > 0.3:
+            #Trend Filter
+            close = data['close']
+            ema_fast = close.ewm(span=20).mean().iloc[-1]
+            ema_slow = close.ewm(span=50).mean().iloc[-1]
+            trend = "UP" if ema_fast > ema_slow else "DOWN"
+            
+            vol = close.pct_change().rolling(20).std().iloc[-1]
+
+            if vol < 0.001:
+                signal = SignalType.HOLD
+
+            if composite_score > 0.25 and trend == "UP":
                 signal = SignalType.BUY
-            elif composite_score < -0.3:
+            elif composite_score < -0.25 and trend == "DOWN":
                 signal = SignalType.SELL
             else:
                 signal = SignalType.HOLD
 
-            confidence = 50 + (abs(composite_score) * 40)
-            confidence = max(50, min(90, confidence))
+            confidence = 50 + (abs(composite_score) * 30)
+            if trend == "UP" and composite_score > 0:
+                confidence += 10
+            elif trend == "DOWN" and composite_score < 0:
+                confidence += 10
+            confidence = max(50, min(95, confidence))
 
             return SignalComponent(
                 source='astro',
@@ -499,7 +511,7 @@ class AISignalEngine:
                     'date': str(date.date()) if hasattr(date, 'date') else str(date),
                 }
             )
-
+            
         try:
             return await self._run_in_executor(_sync_analyze)
         except Exception as e:
@@ -782,60 +794,69 @@ class AISignalEngine:
         total_attr = sum(attribution.values()) or 1
         return {k: round(v / total_attr * 100, 1) for k, v in attribution.items()}
     
-    def _apply_disagreement_penalty(self, components: List[SignalComponent]) -> float:
-        """Hitung penalty berdasarkan disagreement antar engine."""
+    def _apply_disagreement_penalty(self, components):
         valid = [c for c in components if c.error is None and c.weight > 0]
+
         if len(valid) < 2:
             return 1.0
-    
+
         buy_count = sum(1 for c in valid if c.signal in [SignalType.BUY, SignalType.STRONG_BUY])
         sell_count = sum(1 for c in valid if c.signal in [SignalType.SELL, SignalType.STRONG_SELL])
-    
-        min_consensus = max(2, (len(valid) + 1) // 2)
-        majority = max(buy_count, sell_count)
-    
-        if buy_count >= 2 and sell_count >= 2:
+
+        total = len(valid)
+        imbalance = abs(buy_count - sell_count) / total
+
+        if imbalance < 0.2:
             return 0.5
-    
-        if majority < min_consensus:
+        elif imbalance < 0.4:
             return 0.7
-    
-        return 1.0
+        else:
+            return 1.0
     
     
     def _combine_signals(self, components: List[SignalComponent]) -> Tuple[SignalType, float, SignalStrength]:
         """Combine all signal components into final signal."""
-        valid_components = [c for c in components if c.error is None and c.weight > 0]
-    
-        if not valid_components:
+        valid = [c for c in components if c.error is None and c.weight > 0]
+
+        if not valid:
             return SignalType.HOLD, 50.0, SignalStrength.WEAK
-    
+
+        buy_count = sum(1 for c in valid if c.signal in [SignalType.BUY, SignalType.STRONG_BUY])
+        sell_count = sum(1 for c in valid if c.signal in [SignalType.SELL, SignalType.STRONG_SELL])
+
+        total = len(valid)
+        majority = max(buy_count, sell_count)
+
+        # 🔥 true conflict (imbang)
+        if buy_count == sell_count:
+            return SignalType.HOLD, 50.0, SignalStrength.WEAK
+
+        # 🔥 weak majority (tidak cukup kuat)
+        if majority / total < 0.6:
+            return SignalType.HOLD, 50.0, SignalStrength.WEAK
+
         buy_score = 0
         sell_score = 0
         total_weight = 0
-    
-        for comp in valid_components:
+
+        for comp in valid:
             weight = comp.weight * (comp.confidence / 100)
-            total_weight += comp.weight
-    
+            total_weight += weight
+
             if comp.signal in [SignalType.BUY, SignalType.STRONG_BUY]:
                 buy_score += weight
             elif comp.signal in [SignalType.SELL, SignalType.STRONG_SELL]:
                 sell_score += weight
-    
+
         if total_weight > 0:
             buy_score /= total_weight
             sell_score /= total_weight
-    
-        penalty = self._apply_disagreement_penalty(components)
+
+        penalty = self._apply_disagreement_penalty(valid)
+
         buy_score *= penalty
         sell_score *= penalty
-    
-        if buy_score > 0.3 and sell_score > 0.3:
-            ratio = min(buy_score, sell_score) / max(buy_score, sell_score)
-            if ratio > 0.6:
-                return SignalType.HOLD, 50.0, SignalStrength.WEAK
-    
+
         if buy_score > sell_score and buy_score > 0.55:
             signal = SignalType.STRONG_BUY if buy_score > 0.7 else SignalType.BUY
             confidence = buy_score * 100
@@ -845,7 +866,7 @@ class AISignalEngine:
         else:
             signal = SignalType.HOLD
             confidence = 50
-    
+
         if confidence >= 80:
             strength = SignalStrength.VERY_STRONG
         elif confidence >= 65:
@@ -854,7 +875,7 @@ class AISignalEngine:
             strength = SignalStrength.MODERATE
         else:
             strength = SignalStrength.WEAK
-    
+
         return signal, min(95, confidence), strength
     
     def _calculate_levels(self, data: pd.DataFrame, signal: SignalType, current_price: float) -> Tuple[float, float, float]:

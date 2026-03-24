@@ -281,8 +281,8 @@ class TestConfigPerformance:
         config_files = list(config_path.glob('*.yaml'))
         
         for config_file in config_files:
-            with open(config_file, 'r') as f:
-                yaml.safe_load(f)
+            with open(config_file, 'r', encoding='utf-8') as f:
+                yaml.safe_load(f)   
         
         print(f"\n✅ All {len(config_files)} YAML configs valid")
     
