@@ -122,7 +122,7 @@ const Backtest = () => {
         metric: optimizationMetric,
         startDate: backtestConfig.startDate,
         endDate: backtestConfig.endDate,
-        symbol: "BTC-USD" // Default or selected
+        symbol: "BTC/USDT" // Default or selected
       });
 
       if (response && response.results) {
@@ -301,7 +301,7 @@ const Backtest = () => {
         startDate: backtestConfig.startDate,
         endDate: backtestConfig.endDate,
         initialCapital: parseFloat(backtestConfig.initialCapital),
-        symbol: "BTC-USD" // Default symbol, can be made configurable
+        symbol: "BTC/USDT" // Default symbol, can be made configurable
       };
 
       const results = await apiService.runBacktest(backtestRequest);

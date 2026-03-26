@@ -422,7 +422,7 @@ class ScannerRequest(BaseModel):
     """Request model for market scanner"""
     model_config = ConfigDict(str_strip_whitespace=True)
     
-    symbols: List[str] = Field(default_factory=lambda: ['BTC-USD', 'ETH-USD'], max_length=100)
+    symbols: List[str] = Field(default_factory=lambda: ['BTC/USDT', 'ETH/USDT'], max_length=100)
     timeframe: Literal['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w'] = Field(default='1d')
     indicators: List[str] = Field(
         default_factory=lambda: ['mama_fama', 'gann_levels', 'rsi'],
@@ -491,7 +491,7 @@ class BacktestRequest(BaseModel):
     """Request model for running a backtest"""
     model_config = ConfigDict(str_strip_whitespace=True)
     
-    symbol: str = Field(default='BTC-USD', min_length=1, max_length=20)
+    symbol: str = Field(default='BTC/USDT', min_length=1, max_length=20)
     start_date: str = Field(default='2022-01-01', pattern=r'^\d{4}-\d{2}-\d{2}$')
     end_date: str = Field(default='2023-12-31', pattern=r'^\d{4}-\d{2}-\d{2}$')
     initial_capital: float = Field(default=100000.0, ge=1000.0)
@@ -557,7 +557,7 @@ class ForecastRequest(BaseModel):
     """Request model for forecasting"""
     model_config = ConfigDict(str_strip_whitespace=True)
     
-    symbol: str = Field(default='BTC-USD', min_length=1, max_length=20)
+    symbol: str = Field(default='BTC/USDT', min_length=1, max_length=20)
     forecast_days: int = Field(default=7, ge=1, le=365)
     method: Literal['gann', 'ml', 'astro', 'ensemble'] = Field(default='ensemble')
     

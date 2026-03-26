@@ -184,7 +184,7 @@ def analyze_market():
     
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "include_gann": true,
         "include_ehlers": true,
         "include_ml": true
@@ -192,7 +192,7 @@ def analyze_market():
     """
     try:
         data = request.get_json()
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         
         orchestrator = _get_orchestrator()
         if not orchestrator:
@@ -294,7 +294,7 @@ def detect_regime():
     
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "auto_switch": true
     }
     """

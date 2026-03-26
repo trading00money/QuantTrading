@@ -102,7 +102,7 @@ def get_default_trading_modes() -> List[Dict]:
             "apiKey": "",
             "apiSecret": "",
             "passphrase": "",
-            "testnet": True,
+            "testnet": false,
             "brokerConnected": False,
             "mtType": "",
             "mtServer": "",
@@ -160,7 +160,7 @@ def get_default_trading_modes() -> List[Dict]:
             "apiKey": "",
             "apiSecret": "",
             "passphrase": "",
-            "testnet": True,
+            "testnet": false,
             "brokerConnected": False,
             "mtType": "",
             "mtServer": "",
@@ -469,7 +469,7 @@ def smith_chart_analyze():
     """Perform Smith Chart analysis for impedance matching and trading signals"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         lookback_days = data.get('lookbackDays', 100)
         
         CONFIG = load_all_configs()
@@ -478,7 +478,7 @@ def smith_chart_analyze():
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
         
-        price_data = data_feed.get_historical_data(symbol, '1d', start_date, end_date)
+        price_data = self.get_historical_data(symbol, '1d', start_date, end_date)
         
         if price_data is None or price_data.empty:
             return jsonify({"error": "Failed to fetch price data"}), 400
@@ -697,7 +697,7 @@ def pattern_scan():
     """Scan for candlestick and chart patterns"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         timeframe = data.get('timeframe', '1d')
         lookback_days = data.get('lookbackDays', 100)
         
@@ -707,7 +707,7 @@ def pattern_scan():
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
         
-        price_data = data_feed.get_historical_data(symbol, timeframe, start_date, end_date)
+        price_data = self.get_historical_data(symbol, timeframe, start_date, end_date)
         
         if price_data is None or price_data.empty:
             return jsonify({"error": "Failed to fetch price data"}), 400
@@ -738,7 +738,7 @@ def gann_vibration_matrix():
     """Get Gann Time Vibration Matrix (0-360 degrees in 22.5-degree increments)"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         base_price = data.get('basePrice', None)
         
         CONFIG = load_all_configs()
@@ -748,7 +748,7 @@ def gann_vibration_matrix():
             data_feed = DataFeed(broker_config=CONFIG.get('broker_config', {}))
             end_date = datetime.now().strftime('%Y-%m-%d')
             start_date = (datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d')
-            price_data = data_feed.get_historical_data(symbol, '1d', start_date, end_date)
+            price_data = self.get_historical_data(symbol, '1d', start_date, end_date)
             
             if price_data is not None and not price_data.empty:
                 base_price = float(price_data['close'].iloc[-1])
@@ -833,7 +833,7 @@ def gann_supply_demand():
     """Get Gann-based Supply and Demand zones"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         timeframe = data.get('timeframe', '1d')
         lookback_days = data.get('lookbackDays', 100)
         
@@ -843,7 +843,7 @@ def gann_supply_demand():
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=lookback_days)).strftime('%Y-%m-%d')
         
-        price_data = data_feed.get_historical_data(symbol, timeframe, start_date, end_date)
+        price_data = self.get_historical_data(symbol, timeframe, start_date, end_date)
         
         if price_data is None or price_data.empty:
             return jsonify({"error": "Failed to fetch price data"}), 400

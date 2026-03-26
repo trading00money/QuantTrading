@@ -48,7 +48,7 @@ class BacktestRequest(BaseModel):
     startDate: str = "2022-01-01"
     endDate: str = "2023-12-31"
     initialCapital: float = 100000.0
-    symbol: str = "BTC-USD"
+    symbol: str = "BTC/USDT"
     
     @validator('startDate', 'endDate')
     def validate_date(cls, v):

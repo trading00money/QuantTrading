@@ -1,7 +1,7 @@
 import yfinance as yf
 from scanner.Candlestick_Pattern_Scanner import CandlestickPatternScanner
 
-df = yf.download('BTC-USD', interval='1d', period='6mo')
+df = yf.download('BTC/USDT', interval='1d', period='6mo')
 
 df = df.tail(100)
 

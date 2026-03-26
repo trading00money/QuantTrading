@@ -59,7 +59,7 @@ const Index = () => {
   const { marketData, candles, isConnected, subscribe } = useDataFeed();
 
   // Synchronization State
-  const [activeSymbol, setActiveSymbol] = useState("BTC-USD");
+  const [activeSymbol, setActiveSymbol] = useState("BTC/USDT");
   const [activeTimeframe, setActiveTimeframe] = useState("1d");
   const [currentTime, setCurrentTime] = useState(new Date());
 

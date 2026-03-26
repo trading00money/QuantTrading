@@ -37,63 +37,55 @@ class RiskManager:
         self,
         entry_price: float,
         trade_side: str,
-        timestamp: pd.Timestamp
+        timestamp: pd.Timestamp,
+        stop_loss: float = None,
+        take_profit: float = None
     ) -> Optional[Tuple[float, float]]:
-        """
-        Determines the stop loss and take profit levels for a new trade.
 
-        Args:
-            entry_price (float): The entry price of the trade.
-            trade_side (str): 'long' or 'short'.
-            timestamp (pd.Timestamp): The timestamp of the trade entry.
+        # ✅ PRIORITY: pakai dari signal engine
+        if stop_loss is not None and take_profit is not None:
+            if stop_loss <= 0 or take_profit <= 0:
+                return None
+            return stop_loss, take_profit
 
-        Returns:
-            Optional[Tuple[float, float]]: A tuple of (stop_loss, take_profit), or None if invalid.
-        """
+        # ⚠️ FALLBACK: logic lama (sementara)
+        logger.warning("Fallback ke legacy SL/TP calculation")
+
         sl_method = self.config.get("stop_loss_method", "percentage")
         tp_method = self.config.get("take_profit_method", "rr_ratio")
         rr_ratio = self.config.get("risk_reward_ratio", 2.0)
 
         stop_loss = 0.0
 
-        # --- Calculate Stop Loss ---
         if sl_method == "atr":
             atr_multiplier = self.config.get("atr_multiplier", 2.0)
             atr_value = self.price_data.at[timestamp, 'atr']
+
             if pd.isna(atr_value):
-                logger.warning(f"ATR not available for {timestamp}. Falling back to percentage SL.")
-                sl_method = "percentage" # Fallback
+                sl_method = "percentage"
             else:
                 if trade_side == 'long':
                     stop_loss = entry_price - (atr_value * atr_multiplier)
-                else: # short
+                else:
                     stop_loss = entry_price + (atr_value * atr_multiplier)
 
-        if sl_method == "percentage": # Default or fallback
+        if sl_method == "percentage":
             sl_pct = self.config.get("stop_loss_percentage", 2.0) / 100
             if trade_side == 'long':
                 stop_loss = entry_price * (1 - sl_pct)
-            else: # short
+            else:
                 stop_loss = entry_price * (1 + sl_pct)
 
-        if stop_loss <= 0: return None
+        if stop_loss <= 0:
+            return None
 
-        # --- Calculate Take Profit ---
         risk_per_share = abs(entry_price - stop_loss)
 
-        if tp_method == "rr_ratio":
-            if trade_side == 'long':
-                take_profit = entry_price + (risk_per_share * rr_ratio)
-            else: # short
-                take_profit = entry_price - (risk_per_share * rr_ratio)
-        else: # Fallback to rr_ratio
-            logger.warning(f"Take profit method '{tp_method}' not implemented. Using 'rr_ratio'.")
-            if trade_side == 'long':
-                take_profit = entry_price + (risk_per_share * rr_ratio)
-            else: # short
-                take_profit = entry_price - (risk_per_share * rr_ratio)
+        if trade_side == 'long':
+            take_profit = entry_price + (risk_per_share * rr_ratio)
+        else:
+            take_profit = entry_price - (risk_per_share * rr_ratio)
 
-        logger.debug(f"For {trade_side} trade at {entry_price:.2f}: SL={stop_loss:.2f}, TP={take_profit:.2f}")
         return stop_loss, take_profit
 
 # Example Usage
@@ -108,7 +100,7 @@ if __name__ == "__main__":
     }
 
     data_feed = DataFeed({})
-    price_data = data_feed.get_historical_data("BTC-USD", "1d", "2022-01-01")
+    price_data = self.get_historical_data("BTC/USDT", "1d", "2022-01-01")
 
     if price_data is not None:
         risk_manager = RiskManager(mock_risk_config, price_data)
@@ -118,7 +110,8 @@ if __name__ == "__main__":
         entry_ts = last_day.name
         entry_p = last_day.close
 
-        sl, tp = risk_manager.get_exit_levels(entry_p, 'long', entry_ts)
+        entry, sl, tp = signal_engine._calculate_levels(...)
+        sl, tp = risk_manager.get_exit_levels(entry, side, ts, sl, tp)
 
         print("--- Risk Manager Test (Long Trade) ---")
         print(f"Trade Entry Date: {entry_ts.date()}")

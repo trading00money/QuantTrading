@@ -20,8 +20,16 @@ class AstroEngine:
         """
         self.config = astro_config
         # Use de440.bsp as it's a more modern and available ephemeris file
-        ephemeris_path = self.config.get("ephemeris", {}).get("data_path", "data/ephemeris/") + "de440.bsp"
-        self.ephemeris = AstroEphemeris(ephemeris_path=ephemeris_path)
+        import os
+
+        base_path = self.config.get("ephemeris", {}).get("data_path", "data/ephemeris/")
+        ephemeris_path = os.path.join(base_path, "de440.bsp")
+
+        if not os.path.exists(ephemeris_path):
+            logger.error(f"Ephemeris file not found: {ephemeris_path}")
+            self.ephemeris = AstroEphemeris(ephemeris_path=None)
+        else:
+            self.ephemeris = AstroEphemeris(ephemeris_path=ephemeris_path)
         logger.info("AstroEngine initialized.")
 
     def analyze_dates(self, dates: pd.DatetimeIndex) -> Optional[pd.DataFrame]:

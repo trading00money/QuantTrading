@@ -61,7 +61,7 @@ POST /api/settings/accounts
     "broker_type": "crypto_exchange",
     "api_key": "xxx",
     "api_secret": "xxx",
-    "testnet": true,
+    "testnet": false,
     "max_leverage": 20
 }
 ```
@@ -82,7 +82,7 @@ POST /api/settings/connection/test
     "exchange": "binance",
     "apiKey": "xxx",
     "apiSecret": "xxx",
-    "testnet": true
+    "testnet": false
 }
 ```
 
@@ -261,7 +261,7 @@ POST /api/market/connector/exchange
     "exchange": "binance",
     "api_key": "xxx",
     "api_secret": "xxx",
-    "testnet": true,
+    "testnet": false,
     "mode": "spot|futures"
 }
 ```

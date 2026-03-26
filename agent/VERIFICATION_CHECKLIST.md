@@ -151,7 +151,7 @@
 **New Format:**
 ```typescript
 {
-  symbol: "BTC-USD",
+  symbol: "BTC/USDT",
   price: 98500,
   open: 98000,
   high: 99000,

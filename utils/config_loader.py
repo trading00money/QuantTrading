@@ -16,6 +16,8 @@ def load_config(path: str) -> Dict:
         return {}
 
 def load_all_configs(config_dir: str = "config") -> Dict:
+    if config_dir is None:
+        config_dir = "config"
     """
     Loads all .yaml configuration files from a directory into a nested dictionary.
     """

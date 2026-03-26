@@ -313,7 +313,7 @@ await connector.connect()
 curl -X POST http://localhost:5000/api/run_backtest \
   -H "Content-Type: application/json" \
   -d '{
-    "symbol": "BTC-USD",
+    "symbol": "BTC/USDT",
     "startDate": "2023-01-01",
     "endDate": "2023-12-31",
     "initialCapital": 100000

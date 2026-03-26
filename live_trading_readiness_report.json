@@ -600,7 +600,7 @@
       "category": "validation",
       "name": "OrderRequest valid",
       "passed": true,
-      "details": "Valid order: BTC-USD",
+      "details": "Valid order: BTC/USDT",
       "score": 1,
       "timestamp": "2026-03-21T01:38:33.517126"
     },

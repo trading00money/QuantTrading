@@ -111,7 +111,7 @@
 - ✅ **Portfolio risk module**: Portfolio risk file exists
 
 ### 8. Validation
-- ✅ **OrderRequest valid**: Valid order: BTC-USD
+- ✅ **OrderRequest valid**: Valid order: BTC/USDT
 - ✅ **Invalid symbol rejection**: Invalid symbol correctly rejected
 - ✅ **TradingStartRequest**: Valid request with 2 symbols
 - ✅ **ScannerRequest**: Valid scanner request

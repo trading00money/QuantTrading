@@ -47,7 +47,7 @@ class MarketScanner:
         for asset in tqdm(assets, desc="Scanning Assets"):
             for timeframe in timeframes:
                 # 1. Fetch data for the current asset/timeframe
-                price_data = self.data_feed.get_historical_data(asset, timeframe, start_date="2022-01-01") # Lookback of ~1 year
+                price_data = self.get_historical_data(asset, timeframe, start_date="2022-01-01") # Lookback of ~1 year
                 if price_data is None or price_data.empty:
                     logger.warning(f"Could not get data for {asset} on {timeframe}. Skipping.")
                     continue

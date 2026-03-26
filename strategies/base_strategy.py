@@ -14,7 +14,7 @@ class BaseStrategy(ABC):
     def __init__(self, config: Dict):
         self.config = config
         self.name = self.config.get('name', 'UnnamedStrategy')
-        self.symbols = self.config.get('symbols', ['BTC-USD'])
+        self.symbols = self.config.get('symbols', ['BTC/USDT'])
         self.params = self.config.get('params', {})
         logger.info(f"Strategy {self.name} initialized")
     
@@ -40,6 +40,7 @@ class BaseStrategy(ABC):
     
     def validate_data(self, df: pd.DataFrame, min_length: int = 50) -> bool:
         """Check if data is sufficient for strategy."""
+        df = df.copy()
         if df is None or df.empty:
             return False
         if len(df) < min_length:

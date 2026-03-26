@@ -2,7 +2,7 @@
 """
 download_historical_data.py
 
-Download data historis BTC-USD (dan pair lain) minimal 3 tahun.
+Download data historis BTC/USDT (dan pair lain) minimal 3 tahun.
 
 CARA JALANKAN:
 python download_historical_data.py
@@ -16,8 +16,8 @@ INSTALL DEPENDENCY:
 pip install ccxt yfinance requests pandas
 
 OUTPUT:
-data/historical/BTC-USD_1d_2021-01-01_2025-01-01.csv
-data/historical/BTC-USD_1d_2021-01-01_2025-01-01.parquet  (opsional)
+data/historical/BTC/USDT_1d_2021-01-01_2025-01-01.csv
+data/historical/BTC/USDT_1d_2021-01-01_2025-01-01.parquet  (opsional)
 """
 
 import os
@@ -35,7 +35,7 @@ from pathlib import Path
 
 CONFIGS = [
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "timeframe": "1d",
         "start_date": "2021-01-01",
         "end_date": "2025-01-01",
@@ -56,7 +56,7 @@ def normalize_symbol(symbol: str, source: str) -> str:
     """
     Konversi symbol ke format yang dikenali oleh setiap source.
 
-    Input bisa: "BTC-USD", "BTCUSD", "BTC/USDT", "BTC/USD"
+    Input bisa: "BTC/USDT", "BTCUSD", "BTC/USDT", "BTC/USD"
     """
     sym = symbol.upper().strip()
 
@@ -72,8 +72,8 @@ def normalize_symbol(symbol: str, source: str) -> str:
 
     elif source == "yfinance":
         sym = sym.replace("/", "-")
-        if sym in ["BTCUSDT", "BTC-USDT"]:
-            return "BTC-USD"
+        if sym in ["BTCUSDT", "BTC/USDTT"]:
+            return "BTC/USDT"
         if "-" not in sym:
             for quote in ["USDT", "USD"]:
                 if sym.endswith(quote):
@@ -185,7 +185,7 @@ def save_data(df, symbol, timeframe, start_date, end_date, data_dir):
 # LOAD
 # ============================================================
 
-def load_historical_data(symbol="BTC-USD", timeframe="1d",
+def load_historical_data(symbol="BTC/USDT", timeframe="1d",
                          start_date="2021-01-01", end_date="2025-01-01",
                          data_dir=DATA_DIR):
     """

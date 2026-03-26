@@ -66,10 +66,19 @@ def calculate_performance_metrics(
     metrics['Calmar Ratio'] = annual_return / abs(drawdown.min()) if drawdown.min() != 0 else np.inf
 
     logger.success("Performance metrics calculated.")
+    return metrics
 
-    # Format metrics for printing
-    formatted_metrics = {k: (f"{v:.2f}" if isinstance(v, (int, float)) else v) for k, v in metrics.items()}
-    return formatted_metrics
+def format_metrics(metrics: dict) -> dict:
+    """
+    Memformat nilai metrics untuk keperluan display saja.
+
+    - Angka (int, float) akan dibulatkan menjadi 2 desimal.
+    - Nilai selain angka akan dikembalikan tanpa perubahan.
+    """
+    return {
+        k: f"{v:.2f}" if isinstance(v, (int, float)) else v
+        for k, v in metrics.items()
+    }
 
 # Example Usage
 if __name__ == '__main__':

@@ -18,7 +18,7 @@ class GannStrategy(BaseStrategy):
         
     def generate_signals(self, data: Dict[str, pd.DataFrame]) -> List[Dict]:
         signals = []
-        
+        df = df.copy()
         for symbol, df in data.items():
             if not self.validate_data(df):
                 continue

@@ -80,7 +80,7 @@ const LiveCountdown = ({ targetDate, className = "" }: { targetDate: string; cla
   );
 };
 
-export const WaveAnalysisTabs = ({ currentPrice, candleData, symbol = "BTC-USD" }: WaveAnalysisTabsProps) => {
+export const WaveAnalysisTabs = ({ currentPrice, candleData, symbol = "BTC/USDT" }: WaveAnalysisTabsProps) => {
   const [apiData, setApiData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());

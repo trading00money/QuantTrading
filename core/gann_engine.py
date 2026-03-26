@@ -218,7 +218,7 @@ if __name__ == '__main__':
 
     # 2. Fetch some real data for testing
     data_feed = DataFeed(broker_config={})
-    btc_data = data_feed.get_historical_data("BTC-USD", "1d", "2022-01-01", "2023-01-01")
+    btc_data = self.get_historical_data("BTC/USDT", "1d", "2022-01-01", "2023-01-01")
 
     if btc_data is not None:
         # 3. Initialize and run the engine

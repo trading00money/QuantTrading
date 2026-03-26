@@ -45,7 +45,7 @@ def train_models():
     
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "timeframe": "1d",
         "start_date": "2022-01-01",
         "end_date": "2024-01-01",
@@ -56,7 +56,7 @@ def train_models():
     try:
         data = request.get_json() or {}
         
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         timeframe = data.get('timeframe', '1d')
         start_date = data.get('start_date', '2022-01-01')
         end_date = data.get('end_date')
@@ -68,7 +68,7 @@ def train_models():
         # Get price data
         from core.data_feed import DataFeed
         data_feed = DataFeed({})
-        price_data = data_feed.get_historical_data(symbol, timeframe, start_date, end_date)
+        price_data = self.get_historical_data(symbol, timeframe, start_date, end_date)
         
         if price_data is None or price_data.empty:
             return jsonify({
@@ -136,7 +136,7 @@ def predict():
     
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "timeframe": "1d",
         "use_ensemble": true,
         "model": "lightgbm"  // optional, specific model
@@ -145,7 +145,7 @@ def predict():
     try:
         data = request.get_json() or {}
         
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         timeframe = data.get('timeframe', '1d')
         use_ensemble = data.get('use_ensemble', True)
         model_name = data.get('model')
@@ -165,7 +165,7 @@ def predict():
         # Get recent price data
         from core.data_feed import DataFeed
         data_feed = DataFeed({})
-        price_data = data_feed.get_historical_data(symbol, timeframe, limit=200)
+        price_data = self.get_historical_data(symbol, timeframe, limit=200)
         
         if price_data is None or price_data.empty:
             return jsonify({
@@ -244,7 +244,7 @@ def build_features():
     
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "timeframe": "1d",
         "limit": 200
     }
@@ -252,14 +252,14 @@ def build_features():
     try:
         data = request.get_json() or {}
         
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         timeframe = data.get('timeframe', '1d')
         limit = data.get('limit', 200)
         
         # Get price data
         from core.data_feed import DataFeed
         data_feed = DataFeed({})
-        price_data = data_feed.get_historical_data(symbol, timeframe, limit=limit)
+        price_data = self.get_historical_data(symbol, timeframe, limit=limit)
         
         if price_data is None or price_data.empty:
             return jsonify({
@@ -426,7 +426,7 @@ def ehlers_full_analysis():
     
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "timeframe": "1d",
         "indicators": ["all"] or ["fisher", "mama", "bandpass", ...]
     }
@@ -434,14 +434,14 @@ def ehlers_full_analysis():
     try:
         data = request.get_json() or {}
         
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         timeframe = data.get('timeframe', '1d')
         indicators = data.get('indicators', ['all'])
         
         # Get price data
         from core.data_feed import DataFeed
         data_feed = DataFeed({})
-        price_data = data_feed.get_historical_data(symbol, timeframe, limit=200)
+        price_data = self.get_historical_data(symbol, timeframe, limit=200)
         
         if price_data is None or price_data.empty:
             return jsonify({

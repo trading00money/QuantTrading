@@ -43,6 +43,12 @@ class RandomForestModel:
         )
 
         logger.info(f"Training model on {len(X_train)} samples...")
+        from sklearn.ensemble import RandomForestClassifier
+
+        if self.model is None:
+            logger.warning("Model is None — reinitializing RandomForest")
+            self.model = RandomForestClassifier()
+
         self.model.fit(X_train, y_train)
 
         # Evaluate on the test set
@@ -71,8 +77,11 @@ class RandomForestModel:
             raise RuntimeError("Model is not trained or loaded. Call train() or load_model() first.")
 
         # Ensure columns are in the same order as during training
-        X = features[self.model.feature_names_in_]
+        if not hasattr(self.model, "feature_names_in_"):
+            print("⚠️ Model not trained — skipping prediction")
+            return None
 
+        X = features
         probabilities = self.model.predict_proba(X)
         predictions = self.model.predict(X)
 
@@ -87,6 +96,10 @@ class RandomForestModel:
     def save_model(self):
         """Saves the trained model to the specified path."""
         logger.info(f"Saving model to {self.model_path}...")
+        if not self.model_path:
+            logger.error("Model path is None — cannot save model")
+            return
+
         joblib.dump(self.model, self.model_path)
         logger.success("Model saved successfully.")
 

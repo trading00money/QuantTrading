@@ -54,7 +54,7 @@ def start_trading_validated():
     
     Request body:
     {
-        "symbols": ["BTC-USD", "ETH-USD"],
+        "symbols": ["BTC/USDT", "ETH/USDT"],
         "mode": "paper",
         "leverage": 1.0,
         "initial_capital": 100000.0,
@@ -112,7 +112,7 @@ def create_order_validated():
     
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "side": "buy",
         "quantity": 0.1,
         "price": 45000.00,
@@ -181,7 +181,7 @@ def close_position_validated(position_id):
     URL param: position_id
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "quantity": 0.1,  // Optional, closes full position if not provided
         "reason": "Manual close"
     }
@@ -294,7 +294,7 @@ def run_scanner_validated():
     
     Request body:
     {
-        "symbols": ["BTC-USD", "ETH-USD", "EURUSD"],
+        "symbols": ["BTC/USDT", "ETH/USDT", "EURUSD"],
         "timeframe": "1d",
         "indicators": ["mama_fama", "gann_levels", "rsi"],
         "min_confidence": 0.7,
@@ -389,7 +389,7 @@ def get_market_data_validated(symbol):
     """
     Get market data with symbol validation in URL path.
     
-    URL: /api/market-data/BTC-USD
+    URL: /api/market-data/BTC/USDT
     Request body:
     {
         "timeframe": "1d",
@@ -406,7 +406,7 @@ def get_market_data_validated(symbol):
         logger.info(f"Getting market data for {symbol}, timeframe: {data.timeframe}")
         
         # Business logic - fetch market data
-        # price_data = data_feed.get_historical_data(symbol, data.timeframe, ...)
+        # price_data = self.get_historical_data(symbol, data.timeframe, ...)
         
         return jsonify({
             'symbol': symbol,
@@ -435,7 +435,7 @@ def run_backtest_validated():
     
     Request body:
     {
-        "symbol": "BTC-USD",
+        "symbol": "BTC/USDT",
         "start_date": "2022-01-01",
         "end_date": "2023-12-31",
         "initial_capital": 100000.0,
@@ -565,7 +565,7 @@ if __name__ == '__main__':
     # Test OrderRequest
     try:
         order = OrderRequest(
-            symbol="BTC-USD",
+            symbol="BTC/USDT",
             side="buy",
             quantity=0.1,
             price=45000.0,
@@ -580,7 +580,7 @@ if __name__ == '__main__':
     # Test SQL injection protection
     try:
         bad_order = OrderRequest(
-            symbol="BTC-USD'; DROP TABLE orders; --",
+            symbol="BTC/USDT'; DROP TABLE orders; --",
             side="buy",
             quantity=0.1
         )
@@ -591,7 +591,7 @@ if __name__ == '__main__':
     # Test TradingStartRequest
     try:
         trading = TradingStartRequest(
-            symbols=["BTC-USD", "ETH-USD"],
+            symbols=["BTC/USDT", "ETH/USDT"],
             mode="paper",
             leverage=2.0,
             initial_capital=50000.0
@@ -603,7 +603,7 @@ if __name__ == '__main__':
     # Test BacktestRequest
     try:
         backtest = BacktestRequest(
-            symbol="BTC-USD",
+            symbol="BTC/USDT",
             start_date="2022-01-01",
             end_date="2023-12-31"
         )

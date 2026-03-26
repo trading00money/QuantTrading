@@ -226,8 +226,8 @@ def generate_mock_price_update(symbol):
     """Generate mock price update for a symbol"""
     # In production, this would fetch real-time data from broker/exchange
     base_prices = {
-        'BTC-USD': 45000.0,
-        'ETH-USD': 3000.0,
+        'BTC/USDT': 45000.0,
+        'ETH/USDT': 3000.0,
         'AAPL': 180.0,
         'GOOGL': 140.0,
         'MSFT': 380.0,
@@ -322,12 +322,12 @@ def run_backtest_endpoint():
     start_date = params.get("startDate", "2022-01-01")
     end_date = params.get("endDate", "2023-12-31")
     initial_capital = float(params.get("initialCapital", 100000.0))
-    symbol = params.get("symbol", "BTC-USD") # Allow symbol to be passed in future
+    symbol = params.get("symbol", "BTC/USDT") # Allow symbol to be passed in future
 
     try:
         # This logic is adapted from the integration_test script
         data_feed = DataFeed(broker_config=CONFIG.get('broker_config', {}))
-        price_data = data_feed.get_historical_data(symbol, "1d", start_date, end_date)
+        price_data = self.get_historical_data(symbol, "1d", start_date, end_date)
         if price_data is None:
             return jsonify({"error": f"Failed to fetch price data for {symbol}."}), 400
 
@@ -458,7 +458,7 @@ def get_market_data(symbol):
         end_date = data.get('endDate', '2023-12-31')
         
         data_feed = DataFeed(broker_config=CONFIG.get('broker_config', {}))
-        price_data = data_feed.get_historical_data(symbol, timeframe, start_date, end_date)
+        price_data = self.get_historical_data(symbol, timeframe, start_date, end_date)
         
         if price_data is None:
             return jsonify({"error": f"Failed to fetch price data for {symbol}"}), 400
@@ -549,7 +549,7 @@ def get_signals(symbol):
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         
-        price_data = data_feed.get_historical_data(symbol, '1d', start_date, end_date)
+        price_data = self.get_historical_data(symbol, '1d', start_date, end_date)
         
         if price_data is None:
             return jsonify({"error": f"Failed to fetch price data for {symbol}"}), 400

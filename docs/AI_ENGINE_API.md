@@ -30,7 +30,7 @@ Train ML models on historical data.
 **Request Body:**
 ```json
 {
-    "symbol": "BTC-USD",
+    "symbol": "BTC/USDT",
     "timeframe": "1d",
     "start_date": "2022-01-01",
     "end_date": "2024-01-01",
@@ -43,7 +43,7 @@ Train ML models on historical data.
 ```json
 {
     "status": "success",
-    "symbol": "BTC-USD",
+    "symbol": "BTC/USDT",
     "n_samples": 730,
     "n_features": 45,
     "training_results": {
@@ -66,7 +66,7 @@ Generate predictions for current market data.
 **Request Body:**
 ```json
 {
-    "symbol": "BTC-USD",
+    "symbol": "BTC/USDT",
     "timeframe": "1d",
     "use_ensemble": true
 }
@@ -76,7 +76,7 @@ Generate predictions for current market data.
 ```json
 {
     "status": "success",
-    "symbol": "BTC-USD",
+    "symbol": "BTC/USDT",
     "current_price": 42000.50,
     "predictions": [0.72],
     "confidence": [0.85],
@@ -120,7 +120,7 @@ Build fused ML features from price data.
 **Request Body:**
 ```json
 {
-    "symbol": "BTC-USD",
+    "symbol": "BTC/USDT",
     "timeframe": "1d",
     "limit": 200
 }
@@ -242,7 +242,7 @@ Complete Ehlers DSP analysis with all indicators.
 **Request Body:**
 ```json
 {
-    "symbol": "BTC-USD",
+    "symbol": "BTC/USDT",
     "timeframe": "1d",
     "indicators": ["all"]
 }
@@ -260,7 +260,7 @@ Complete Ehlers DSP analysis with all indicators.
 ```json
 {
     "status": "success",
-    "symbol": "BTC-USD",
+    "symbol": "BTC/USDT",
     "current_price": 42000,
     "indicators": {
         "fisher": {

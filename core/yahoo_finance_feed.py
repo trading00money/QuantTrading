@@ -34,8 +34,8 @@ except ImportError:
 # ────────────────────────────────────────────────────────────────
 YAHOO_SYMBOL_MAP = {
     # Crypto → Yahoo tickers
-    "BTCUSDT": "BTC-USD",
-    "ETHUSDT": "ETH-USD",
+    "BTCUSDT": "BTC/USDT",
+    "ETHUSDT": "ETH/USDT",
     "SOLUSDT": "SOL-USD",
     "BNBUSDT": "BNB-USD",
     "XRPUSDT": "XRP-USD",
@@ -417,7 +417,7 @@ def _generate_simulated(symbol: str, base_price: float = 100.0) -> Dict[str, Any
     seed = _SIMULATED_FUNDAMENTALS.get(symbol, {})
     
     # Determine asset category
-    is_crypto = symbol.endswith("USDT") or symbol in ("BTC-USD", "ETH-USD")
+    is_crypto = symbol.endswith("USDT") or symbol in ("BTC/USDT", "ETH/USDT")
     is_forex = any(symbol.startswith(p) for p in ("EUR", "GBP", "USD", "AUD", "NZD", "CHF", "CAD"))
     is_bond = any(symbol.startswith(p) for p in ("US1", "US2", "US3", "US5", "DE1", "GB1", "JP1", "IT1", "FR1", "AU1")) or symbol in ("TLT", "HYG")
     is_commodity = symbol.endswith("USD") and not is_forex and not is_crypto

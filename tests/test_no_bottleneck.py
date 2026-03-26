@@ -323,7 +323,7 @@ class TestPerformanceBenchmarks:
         import json
         
         response = {
-            'symbol': 'BTC-USD',
+            'symbol': 'BTC/USDT',
             'price': 45000.0,
             'timestamp': '2025-01-18T00:00:00',
             'levels': [i * 100 for i in range(100)]

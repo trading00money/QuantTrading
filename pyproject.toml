@@ -39,3 +39,8 @@ mypy = "^1.0.1"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+markers = [
+    "no_mock: disable risk gateway mock"
+]

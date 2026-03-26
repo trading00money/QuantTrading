@@ -40,12 +40,12 @@ def run_backtest_session(config):
         signal_engine = AISignalEngine(config=config.get('strategy_config', {}))
 
         # 2. Get historical data
-        symbol = "BTC-USD"
+        symbol = "BTC/USDT"
         start_date = "2021-01-01"
         end_date = "2023-01-01"
         log_container.text(f"Fetching data for {symbol} from {start_date} to {end_date}...")
 
-        price_data = data_feed.get_historical_data(symbol, "1d", start_date, end_date)
+        price_data = self.get_historical_data(symbol, "1d", start_date, end_date)
         if price_data is None:
             st.error("Failed to fetch price data.")
             return

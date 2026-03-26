@@ -25,6 +25,7 @@ class TrendFollowingStrategy(BaseStrategy):
                 continue
                 
             # Calculate indicators
+            df = df.copy()
             df['fast_ma'] = df['close'].rolling(self.fast_period).mean()
             df['slow_ma'] = df['close'].rolling(self.slow_period).mean()
             

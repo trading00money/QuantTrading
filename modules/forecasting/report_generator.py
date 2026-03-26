@@ -264,7 +264,7 @@ if __name__ == "__main__":
     ]
     
     generator = ReportGenerator()
-    report = generator.generate_full_report(data, 'BTC-USD', trades)
+    report = generator.generate_full_report(data, 'BTC/USDT', trades)
     
     print("\n=== Report Summary ===")
     print(report['executive_summary'])

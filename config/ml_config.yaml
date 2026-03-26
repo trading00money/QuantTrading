@@ -4,6 +4,12 @@
 # Deep Learning & AI models for trading predictions
 # ================================================================
 
+ml_config:
+  active_model: ml_randomforest
+
+  model_paths:
+    ml_randomforest: models/random_forest.pkl
+
 version: "3.0.0"
 
 # ================================================================
@@ -845,3 +851,4 @@ logging:
     enabled: false
     project: "gann-quant-ai"
     entity: null
+

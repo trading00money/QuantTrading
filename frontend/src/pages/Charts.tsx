@@ -11,7 +11,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 const Charts = () => {
   const isMobile = useIsMobile();
   const { marketData, candles, isConnected, subscribe } = useDataFeed();
-  const [activeSymbol, setActiveSymbol] = useState("BTC-USD");
+  const [activeSymbol, setActiveSymbol] = useState("BTC/USDT");
 
   const [activeOverlays, setActiveOverlays] = useState<Set<string>>(new Set([
     "Gann Square 360", "Gann Angles 1x1", "MAMA (MESA Adaptive)"

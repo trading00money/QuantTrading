@@ -249,14 +249,17 @@ class TradingOrchestrator:
             self.state = OrchestratorState.RUNNING
             logger.info("Trading resumed")
     
-    def _trading_loop(self):
+    async def _trading_loop(self):
         """Main trading loop."""
         logger.info("Trading loop started")
         
         while self._running:
+            await self._execute_cycle()
+
             try:
                 if self.state != OrchestratorState.RUNNING:
-                    time.sleep(1)
+                    
+                    await asyncio.sleep(1)
                     continue
                 
                 # Process each symbol
@@ -264,7 +267,7 @@ class TradingOrchestrator:
                     self._process_symbol(symbol)
                 
                 # Wait for next scan
-                time.sleep(self.scan_interval_seconds)
+                await asyncio.sleep(self.scan_interval_seconds)
                 
             except Exception as e:
                 logger.error(f"Trading loop error: {e}")
@@ -273,22 +276,15 @@ class TradingOrchestrator:
                         callback(e)
                     except:
                         pass
-                time.sleep(5)
+                await asyncio.sleep(5)
         
         logger.info("Trading loop stopped")
     
     def _process_symbol(self, symbol: str):
         """Process a single symbol through the full pipeline (mode-aware)."""
         try:
-            # Get historical data for analysis
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             
             for timeframe in self.timeframes:
-                df = loop.run_until_complete(
-                    self._data_feed.get_historical_data(symbol, timeframe, 100)
-                )
-                
                 if df is None or len(df) < 50:
                     continue
                 
@@ -380,14 +376,25 @@ class TradingOrchestrator:
                     account_id = account.id if account else "default"
                     
                     # Process through execution gate
-                    result = loop.run_until_complete(
-                        self._execution_gate.process_signal(
-                            signal=routed_signal,
-                            account_id=account_id,
-                            exchange=exchange,
-                            leverage=min(5, account.max_leverage if account else 1)
-                        )
+                    entry = routed_signal.entry_price
+                    sl = routed_signal.stop_loss
+                    tp = routed_signal.take_profit
+
+                    if routed_signal.signal.value in ["BUY", "STRONG_BUY"]:
+                        side = "BUY"
+                    else:
+                        side = "SELL"
+
+                    order = self._execution_engine.create_order(
+                        symbol=symbol,
+                        side=side,
+                        order_type="MARKET",
+                        quantity=1,
+                        stop_loss=sl,
+                        take_profit=tp
                     )
+
+                    result = self._execution_engine.submit_order(order)
                     
                     # Track trade
                     if result.status.value == 'executed':
@@ -417,9 +424,6 @@ class TradingOrchestrator:
             
             # Subscribe if running
             if self._data_feed and self._running:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(self._data_feed.subscribe_ticks([symbol]))
                 loop.close()
             
             logger.info(f"Added symbol: {symbol}")

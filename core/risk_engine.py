@@ -20,7 +20,6 @@ class RiskLevel(Enum):
     HIGH = "high"
     CRITICAL = "critical"
 
-
 class RiskViolationType(Enum):
     MAX_POSITION_SIZE = "max_position_size"
     MAX_DAILY_LOSS = "max_daily_loss"
@@ -41,7 +40,7 @@ class RiskConfig:
     max_risk_per_trade: float = 2.0  # Percentage of account
     max_position_size: float = 10.0  # Percentage of account
     max_leverage: int = 10
-    
+
     # Daily limits
     max_daily_loss: float = 5.0  # Percentage
     max_daily_trades: int = 50

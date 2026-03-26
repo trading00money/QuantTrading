@@ -30,10 +30,15 @@ class FeatureBuilder:
             pd.DataFrame: A DataFrame with features and a target variable.
         """
         logger.info("Building features for ML model...")
+
+        if price_data is None:
+            logger.error("price_data is None — cannot build features")
+            return None
+
         features = price_data.copy()
 
         # 1. Price-based features
-        for n in [5, 10, 20, 60]:
+        for n in [5, 10, 20]:
             features[f'return_{n}d'] = features['close'].pct_change(n)
         features['rsi'] = self._calculate_rsi(features['close'])
 
@@ -70,8 +75,9 @@ class FeatureBuilder:
         # Keep only columns that were successfully created
         final_cols = [col for col in feature_cols if col in features.columns]
         features = features[final_cols]
-        features.dropna(inplace=True)
-
+        features = features.fillna(0)
+        print("FEATURE INPUT ROWS:", len(price_data))
+        print("AFTER FEATURE ENGINEERING:", len(features))
         logger.success(f"Feature building complete. Shape: {features.shape}")
         return features
 

@@ -9,6 +9,7 @@ from loguru import logger
 from dataclasses import dataclass, field
 from threading import Lock
 import uuid
+from core.risk_gateway import RiskGateway
 
 # Import enums from shared module - single source of truth
 from core.enums import OrderType, OrderSide, OrderStatus, BrokerType, MarginMode, PositionSide
@@ -76,6 +77,7 @@ class ExecutionEngine:
         self._order_callbacks: List[Callable] = []
         self._position_callbacks: List[Callable] = []
         self._lock = Lock()
+        self.risk_gateway = RiskGateway(config)
         
         # Paper trading state
         self._paper_balance = config.get('paper_trading', {}).get('initial_balance', 100000.0)
@@ -128,36 +130,36 @@ class ExecutionEngine:
         """Generate unique order ID"""
         return f"ORD-{uuid.uuid4().hex[:8].upper()}"
     
-    def _validate_order(self, order: Order) -> Tuple[bool, str]:
-        """
-        Validate order against risk rules.
+    # def _validate_order(self, order: Order) -> Tuple[bool, str]:
+    #     """
+    #     Validate order against risk rules.
         
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        # Reset daily PnL if new day
-        today = datetime.now().date()
-        if today > self._daily_pnl_reset_date:
-            self._daily_pnl = 0.0
-            self._daily_pnl_reset_date = today
+    #     Returns:
+    #         Tuple of (is_valid, error_message)
+    #     """
+    #     # Reset daily PnL if new day
+    #     today = datetime.now().date()
+    #     if today > self._daily_pnl_reset_date:
+    #         self._daily_pnl = 0.0
+    #         self._daily_pnl_reset_date = today
         
-        # Check daily loss limit
-        if self._daily_pnl < -self.max_daily_loss * self._paper_balance:
-            return False, "Daily loss limit exceeded"
+    #     # Check daily loss limit
+    #     if self._daily_pnl < -self.max_daily_loss * self._paper_balance:
+    #         return False, "Daily loss limit exceeded"
         
-        # Check max open positions
-        open_positions = len([p for p in self._positions.values() if p.quantity > 0])
-        if open_positions >= self.max_open_positions:
-            return False, f"Max open positions ({self.max_open_positions}) reached"
+    #     # Check max open positions
+    #     open_positions = len([p for p in self._positions.values() if p.quantity > 0])
+    #     if open_positions >= self.max_open_positions:
+    #         return False, f"Max open positions ({self.max_open_positions}) reached"
         
-        # Check position size
-        total_value = order.quantity * (order.price if order.price > 0 else 1)
-        max_value = self._paper_balance * self.max_position_size
-        if total_value > max_value:
-            return False, f"Position size exceeds limit ({self.max_position_size*100}% of portfolio)"
+    #     # Check position size
+    #     total_value = order.quantity * (order.price if order.price > 0 else 1)
+    #     max_value = self._paper_balance * self.max_position_size
+    #     if total_value > max_value:
+    #         return False, f"Position size exceeds limit ({self.max_position_size*100}% of portfolio)"
         
-        # Valid
-        return True, ""
+    #     # Valid
+    #     return True, ""
     
     def create_order(
         self,
@@ -207,23 +209,57 @@ class ExecutionEngine:
         logger.info(f"Order created: {order.id} - {side} {quantity} {symbol}")
         return order
     
+    def _get_market_price(self, order: Order) -> float:
+        """Ambil harga real dari broker / fallback."""
+
+        connector = self._connectors.get(order.broker)
+
+        try:
+            if connector:
+                if order.broker == BrokerType.BINANCE:
+                    ticker = connector.get_symbol_price(order.symbol)
+                    return float(ticker.get("price", 0))
+
+                elif order.broker == BrokerType.MT5:
+                    tick = connector.get_tick(order.symbol)
+                    return tick.ask if order.side == OrderSide.BUY else tick.bid
+
+        except Exception as e:
+            logger.warning(f"Failed to get market price: {e}")
+
+        # fallback terakhir (paper / error)
+        return order.price if order.price > 0 else 50000.0
+
     def submit_order(self, order: Order) -> Order:
-        """
-        Submit order to broker.
-        
-        Args:
-            order: Order to submit
-            
-        Returns:
-            Updated order with broker response
-        """
-        # Validate
-        is_valid, error = self._validate_order(order)
-        if not is_valid:
+        market_price = self._get_market_price(order)
+
+        decision = self.risk_gateway.evaluate_trade(
+            symbol=order.symbol,
+            side=order.side.value,
+            entry_price=market_price,
+            stop_loss=order.stop_loss,
+            account_balance=self.get_paper_balance(),
+            open_positions=[
+                {"symbol": p.symbol} for p in self.get_all_positions()
+            ]
+        )
+
+        if not decision.approved:
             order.status = OrderStatus.REJECTED
-            order.error_message = error
-            logger.error(f"Order rejected: {error}")
+            order.error_message = decision.reason
             return order
+
+        if decision.position_size <= 0:
+            order.status = OrderStatus.REJECTED
+            order.error_message = "Invalid position size"
+            return order
+
+        if market_price <= 0:
+            order.status = OrderStatus.REJECTED
+            order.error_message = "Invalid market price"
+            return order
+
+        order.quantity = decision.position_size
         
         # Submit to broker
         try:

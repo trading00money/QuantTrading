@@ -74,7 +74,7 @@ POST /api/broker/test-connection
   "exchange": "binance",
   "apiKey": "your-api-key",
   "apiSecret": "your-secret",
-  "testnet": true
+  "testnet": false
 }
 
 // Get account balance

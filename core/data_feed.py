@@ -56,7 +56,8 @@ class DataFeed:
         logger.debug("Initializing data connectors from config...")
         
         trading_modes = self.broker_config.get('trading_modes', [])
-        
+        print("RAW CONFIG:", self.broker_config)
+        print("TRADING MODES:", self.broker_config.get("trading_modes"))
         for mode in trading_modes:
             if not mode.get('enabled', False):
                 continue
@@ -67,14 +68,13 @@ class DataFeed:
             try:
                 if broker_type == "metatrader":
                     creds = MTCredentials(
-                        login=mode.get('mtLogin', ''),
-                        password=mode.get('mtPassword', ''),
-                        server=mode.get('mtServer', ''),
-                        version=MTVersion.MT5 if mode.get('mtType') == 'mt5' else MTVersion.MT4,
-                        account_type=mode.get('mtAccountType', 'demo'),
+                        login=int(mode.get('mtLogin')),
+                        password=mode.get('mtPassword'),
+                        server=mode.get('mtServer'),
                         broker=mode.get('mtBroker', '')
                     )
-                    self.connectors[f"mt_{mode_id}"] = MetaTraderConnectorFactory.create(creds, mode_id)
+                    from connectors.metatrader_connector import MetaTraderConnector
+                    self.connectors[f"mt_{mode_id}"] = MetaTraderConnector(creds)
                     logger.info(f"Initialized MetaTrader connector: {mode_id}")
                     
                 elif broker_type == "crypto_exchange":
@@ -142,7 +142,7 @@ class DataFeed:
         timeframe: str,
         start_date: str,
         end_date: Optional[str] = None,
-        source: str = "auto",
+        source: str = "metatrader",
     ) -> Optional[pd.DataFrame]:
         """
         Fetches historical OHLCV data from broker connectors.
@@ -164,7 +164,7 @@ class DataFeed:
                                      or None if no connector is available or an error occurs.
         """
         logger.info(f"Fetching historical data for {symbol} ({timeframe}) from {source}...")
-
+        print(self.get_available_connectors())
         # Auto-detect source based on symbol
         if source == "auto":
             source = self._detect_source(symbol)
@@ -182,10 +182,10 @@ class DataFeed:
                     data = self._try_fetch(src, symbol, timeframe, start_date, end_date)
                     if data is not None and not data.empty:
                         return data
-                
+                    
                 logger.warning(f"No data available for {symbol} from any connector")
                 return None
-                
+        
         except Exception as e:
             logger.error(f"An error occurred while fetching historical data for {symbol}: {e}")
             return None
@@ -307,26 +307,26 @@ class DataFeed:
             return None
 
     def _fetch_from_exchange(self, symbol: str, timeframe: str,
-                              start_date: str, end_date: Optional[str]) -> Optional[pd.DataFrame]:
-        """Fetch historical data from crypto exchange via CCXT."""
+                            start_date: str, end_date: Optional[str]) -> Optional[pd.DataFrame]:
+
         if not CCXT_AVAILABLE:
-            logger.warning("CCXT not available for exchange historical data")
+            logger.warning("CCXT not available")
             return None
-        
-        # Find an exchange instance
+
+        # Get exchange instance
         exchange_instance = None
-        for key, instance in self._exchange_instances.items():
+        for instance in self._exchange_instances.values():
             exchange_instance = instance
             break
-        
+
         if exchange_instance is None:
-            logger.warning("No exchange instance available for historical data")
+            logger.warning("No exchange instance available")
             return None
-        
-        # Normalize symbol for exchange (e.g., "BTC-USD" → "BTC/USDT")
+
+        # Normalize symbol
         ex_symbol = self._normalize_symbol_exchange(symbol)
-        
-        # Map timeframe to CCXT format
+
+        # Timeframe mapping
         tf_map = {
             '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
             '1h': '1h', '2h': '2h', '4h': '4h', '1d': '1d', '1w': '1w',
@@ -334,42 +334,57 @@ class DataFeed:
             'H1': '1h', 'H2': '2h', 'H4': '4h', 'D1': '1d', 'W1': '1w',
         }
         ccxt_tf = tf_map.get(timeframe, timeframe)
-        
+
         try:
-            # Convert start_date to milliseconds
-            since = int(pd.Timestamp(start_date).timestamp() * 1000)
-            
             # Calculate limit
             start_dt = pd.Timestamp(start_date)
             end_dt = pd.Timestamp(end_date) if end_date else pd.Timestamp.now()
+
             days = (end_dt - start_dt).days
+
             tf_bars_per_day = {
                 '1m': 1440, '5m': 288, '15m': 96, '30m': 48,
                 '1h': 24, '2h': 12, '4h': 6, '1d': 1, '1w': 0.14
             }
+
             bars_per_day = tf_bars_per_day.get(ccxt_tf, 24)
             limit = min(max(int(days * bars_per_day), 100), 1000)
-            
-            # Fetch OHLCV via CCXT (synchronous)
-            ohlcv = exchange_instance.fetch_ohlcv(ex_symbol, ccxt_tf, since=since, limit=limit)
-            
-            if ohlcv and len(ohlcv) > 0:
-                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-                df.set_index('timestamp', inplace=True)
-                
-                # Filter by end_date if provided
-                if end_date:
-                    df = df[df.index <= end_date]
-                
-                logger.success(f"Successfully fetched {len(df)} rows for {symbol} from exchange.")
-                return df
-            else:
-                logger.warning(f"Exchange returned empty data for {ex_symbol}")
+
+            # DEBUG (setelah semua siap)
+            print("========== DEBUG ==========")
+            print("SYMBOL:", ex_symbol)
+            print("TIMEFRAME:", ccxt_tf)
+            print("LIMIT:", limit)
+            print("===========================")
+
+            # WAJIB: load markets
+            exchange_instance.load_markets()
+
+            # Fetch TANPA since dulu (biar pasti dapat data)
+            ohlcv = exchange_instance.fetch_ohlcv(ex_symbol, ccxt_tf, limit=limit)
+
+            print("OHLCV LENGTH:", len(ohlcv) if ohlcv else 0)
+
+            # VALIDASI DATA
+            if not ohlcv or len(ohlcv) == 0:
+                logger.error(f"EMPTY DATA for {ex_symbol}")
                 return None
-                
+
+            # Convert ke DataFrame
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            df.set_index('timestamp', inplace=True)
+
+            start_dt = pd.Timestamp(start_date)
+            end_dt = pd.Timestamp(end_date) if end_date else pd.Timestamp.now()
+
+            # df = df[(df.index >= start_dt) & (df.index <= end_dt)]
+            print("DF ROWS BEFORE RETURN:", len(df))
+            logger.success(f"Fetched {len(df)} rows for {symbol}")
+            return df
+
         except Exception as e:
-            logger.warning(f"Exchange fetch error for {symbol}: {e}")
+            logger.error(f"Exchange fetch error: {e}")
             return None
 
     def _fetch_from_fix(self, symbol: str, timeframe: str,
@@ -416,16 +431,21 @@ class DataFeed:
             return symbol
         
         # "BTCUSDT" → "BTC/USDT"
-        stable_coins = ['USDT', 'BUSD', 'USDC', 'USD', 'TUSD', 'DAI']
+        stable_coins = ['USDT', 'BUSD', 'USDC', 'TUSD', 'DAI']
         for sc in stable_coins:
             if symbol.endswith(sc):
                 base = symbol[:-len(sc)]
                 return f"{base}/{sc}"
         
-        # "BTC-USD" → "BTC/USD"
+        # "BTC/USDT" → "BTC/USD"
         if '-' in symbol:
-            return symbol.replace('-', '/')
+            base, quote = symbol.split('-')
+            if quote == "USD":
+                quote = "USDT"
+            return f"{base}/{quote}"
         
+        print("FINAL SYMBOL:", ex_symbol)
+
         return symbol
 
     def get_available_connectors(self) -> Dict[str, str]:
@@ -463,7 +483,7 @@ if __name__ == "__main__":
                 "exchange": "binance",
                 "apiKey": "",
                 "apiSecret": "",
-                "testnet": True,
+                "testnet": false,
                 "mode": "spot"
             }
         ]
@@ -488,3 +508,4 @@ if __name__ == "__main__":
         print(btc_data.head())
     else:
         print("\nNo data returned (connectors may be in simulation mode)")
+    

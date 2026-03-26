@@ -16,7 +16,7 @@ sys.path.insert(0, PROJECT_ROOT)
 # =========================
 # KONFIGURASI
 # =========================
-SYMBOL = "BTC-USD"
+SYMBOL = "BTC/USDT"
 TIMEFRAME = "1d"
 START_DATE = "2023-01-01"
 END_DATE = "2024-01-01"

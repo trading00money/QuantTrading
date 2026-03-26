@@ -342,7 +342,7 @@ try:
     from core.validation import sanitize_symbol
     
     # Test valid symbols
-    valid_tests = ["BTC-USD", "ETHUSD", "AAPL", "EUR/USD", "BTC.USDT"]
+    valid_tests = ["BTC/USDT", "ETHUSD", "AAPL", "EUR/USD", "BTC.USDT"]
     invalid_tests = ["BTC'; DROP TABLE--", "ETH\" OR 1=1", "SELECT * FROM users", "'; DELETE FROM orders;--"]
     
     all_passed = True
@@ -392,7 +392,7 @@ try:
     
     # Valid order
     valid_order = OrderRequest(
-        symbol="BTC-USD",
+        symbol="BTC/USDT",
         side="buy",
         quantity=1.0,
         order_type="market"
@@ -703,7 +703,7 @@ try:
     from core.validation import OrderRequest
     
     # Test valid order
-    order = OrderRequest(symbol="BTC-USD", side="buy", quantity=1.0, order_type="market")
+    order = OrderRequest(symbol="BTC/USDT", side="buy", quantity=1.0, order_type="market")
     log_test("validation", "OrderRequest valid", True, f"Valid order: {order.symbol}", 1)
     validation_score += 1
 except Exception as e:
@@ -729,7 +729,7 @@ try:
     from core.validation import TradingStartRequest
     
     req = TradingStartRequest(
-        symbols=["BTC-USD", "ETH-USD"],
+        symbols=["BTC/USDT", "ETH/USDT"],
         mode="paper",
         leverage=1.0,
         initial_capital=100000.0
@@ -745,7 +745,7 @@ try:
     from core.validation import ScannerRequest
     
     req = ScannerRequest(
-        symbols=["BTC-USD", "ETH-USD"],
+        symbols=["BTC/USDT", "ETH/USDT"],
         timeframe="1d",
         indicators=["mama_fama", "gann_levels"]
     )
@@ -760,7 +760,7 @@ try:
     from core.validation import BacktestRequest
     
     req = BacktestRequest(
-        symbol="BTC-USD",
+        symbol="BTC/USDT",
         start_date="2022-01-01",
         end_date="2023-12-31",
         initial_capital=100000.0

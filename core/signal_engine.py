@@ -17,8 +17,8 @@ from modules.astro.synodic_cycles import SynodicCycleCalculator
 # (import duplikat dihapus — class didefinisikan lokal di baris 24-57)
 import json
 from concurrent.futures import ThreadPoolExecutor
+from core.fusion_confidence import calculate_fusion_confidence
 import functools
-
 
 class SignalType(Enum):
     BUY = "BUY"
@@ -265,8 +265,52 @@ class AISignalEngine:
         # Extract reasons from high-confidence components
         reasons = self._extract_reasons(components)
         
-        # Combine signals
-        final_signal, confidence, strength = self._combine_signals(components)
+        # =============================
+        # DEBUG (optional tapi penting)
+        # =============================
+        for c in components:
+            print("DEBUG:", c.source, c.signal, c.confidence, c.weight, c.details)
+
+        # =============================
+        # ✅ Fusion Engine
+        # =============================
+        fusion = calculate_fusion_confidence(components)
+
+        if fusion is None:
+            logger.error("[FUSION ERROR] Returned None — fallback activated")
+            fusion = {
+                "buy_score": 0.0,
+                "sell_score": 0.0,
+                "confidence": 50.0,
+                "dominant_signal": "HOLD"
+            }
+
+        confidence = fusion["confidence"]
+        dominant = fusion["dominant_signal"]
+
+        # =============================
+        # Mapping ke SignalType
+        # =============================
+        if dominant == "BUY":
+            final_signal = SignalType.STRONG_BUY if confidence > 80 else SignalType.BUY
+
+        elif dominant == "SELL":
+            final_signal = SignalType.STRONG_SELL if confidence > 80 else SignalType.SELL
+
+        else:
+            final_signal = SignalType.HOLD
+
+        # =============================
+        # Strength mapping
+        # =============================
+        if confidence >= 80:
+            strength = SignalStrength.VERY_STRONG
+        elif confidence >= 65:
+            strength = SignalStrength.STRONG
+        elif confidence >= 50:
+            strength = SignalStrength.MODERATE
+        else:
+            strength = SignalStrength.WEAK
         
         # Calculate entry, SL, TP
         entry, sl, tp = self._calculate_levels(data, final_signal, current_price)
@@ -386,11 +430,11 @@ class AISignalEngine:
             range_size = nearest_resistance - nearest_support
             price_position = (current_price - nearest_support) / range_size if range_size > 0 else 0.5
             
-            if price_position < 0.3:
+            if price_position < 0.4:
                 signal = SignalType.BUY
                 confidence = (0.3 - price_position) * 200 + 50
                 reason = f"Price near Sq9 support ${nearest_support:.2f}"
-            elif price_position > 0.7:
+            elif price_position > 0.6:
                 signal = SignalType.SELL
                 confidence = (price_position - 0.7) * 200 + 50
                 reason = f"Price near Sq9 resistance ${nearest_resistance:.2f}"
@@ -790,7 +834,8 @@ class AISignalEngine:
         for c in components:
             if c.error is None and c.weight > 0:
                 attribution[c.source] = c.weight * c.confidence
-        
+            if c.confidence < 50:
+                continue
         total_attr = sum(attribution.values()) or 1
         return {k: round(v / total_attr * 100, 1) for k, v in attribution.items()}
     
@@ -807,11 +852,11 @@ class AISignalEngine:
         imbalance = abs(buy_count - sell_count) / total
 
         if imbalance < 0.2:
-            return 0.5
+            penalty = 0.8
         elif imbalance < 0.4:
-            return 0.7
+            penalty = 0.9
         else:
-            return 1.0
+            penalty = 1.0
     
     
     def _combine_signals(self, components: List[SignalComponent]) -> Tuple[SignalType, float, SignalStrength]:
@@ -857,16 +902,20 @@ class AISignalEngine:
         buy_score *= penalty
         sell_score *= penalty
 
-        if buy_score > sell_score and buy_score > 0.55:
+        if buy_score > sell_score and buy_score > 0.45:
             signal = SignalType.STRONG_BUY if buy_score > 0.7 else SignalType.BUY
-            confidence = buy_score * 100
-        elif sell_score > buy_score and sell_score > 0.55:
+            confidence = buy_score * 100 * min(1.0, len(valid) / 3)
+        elif sell_score > buy_score and sell_score > 0.45:
             signal = SignalType.STRONG_SELL if sell_score > 0.7 else SignalType.SELL
-            confidence = sell_score * 100
+            confidence = sell_score * 100 * min(1.0, len(valid) / 3)
         else:
             signal = SignalType.HOLD
             confidence = 50
+        gap = abs(buy_score - sell_score)
 
+        if gap < 0.1:
+            dominant = "HOLD"
+            confidence = 50
         if confidence >= 80:
             strength = SignalStrength.VERY_STRONG
         elif confidence >= 65:
@@ -879,35 +928,62 @@ class AISignalEngine:
         return signal, min(95, confidence), strength
     
     def _calculate_levels(self, data: pd.DataFrame, signal: SignalType, current_price: float) -> Tuple[float, float, float]:
-        """Calculate entry, stop loss, and take profit levels."""
+
         if len(data) < 20:
             if signal in [SignalType.BUY, SignalType.STRONG_BUY]:
                 return current_price, current_price * 0.98, current_price * 1.04
             elif signal in [SignalType.SELL, SignalType.STRONG_SELL]:
                 return current_price, current_price * 1.02, current_price * 0.96
             return current_price, current_price, current_price
-        
-        # ATR calculation
+
         high = data['high']
         low = data['low']
         close = data['close']
-        
-        tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
+
+        tr = pd.concat([
+            high - low,
+            abs(high - close.shift(1)),
+            abs(low - close.shift(1))
+        ], axis=1).max(axis=1)
+
         atr = tr.rolling(14).mean().iloc[-1]
-        
+
+        # === VOLATILITY PERCENTILE ===
+        tr_series = tr.dropna()
+
+        if len(tr_series) >= 100:
+            percentile = (tr_series < tr.iloc[-1]).mean() * 100
+        else:
+            percentile = 50
+
+        # === DYNAMIC MULTIPLIER ===
+        p = percentile / 100.0
+        sl_mult = 1.2 + (p * 1.0)
+        tp_mult = 2.0 + (p * 1.8)
+
+        # === VOLATILITY FILTER ===
+        volatility_ratio = atr / tr_series.mean()
+
+        if volatility_ratio > 1.5:
+            sl_mult *= 0.9
+            tp_mult *= 0.9
+
+        # === APPLY LEVELS ===
         if signal in [SignalType.BUY, SignalType.STRONG_BUY]:
             entry = current_price
-            stop_loss = current_price - (atr * 1.5)
-            take_profit = current_price + (atr * 3)
+            stop_loss = current_price - (atr * sl_mult)
+            take_profit = current_price + (atr * tp_mult)
+
         elif signal in [SignalType.SELL, SignalType.STRONG_SELL]:
             entry = current_price
-            stop_loss = current_price + (atr * 1.5)
-            take_profit = current_price - (atr * 3)
+            stop_loss = current_price + (atr * sl_mult)
+            take_profit = current_price - (atr * tp_mult)
+
         else:
             entry = current_price
             stop_loss = current_price
             take_profit = current_price
-        
+
         return round(entry, 4), round(stop_loss, 4), round(take_profit, 4)
     
     def _calculate_risk_reward(self, entry: float, stop_loss: float, take_profit: float, signal: SignalType) -> float:
@@ -1009,42 +1085,29 @@ async def get_signal_engine(config: Dict = None) -> AISignalEngine:
 
 
 # Synchronous wrapper for backward compatibility
-def get_signal_engine_sync(config: Dict = None) -> AISignalEngine:
-    """Synchronous wrapper for backward compatibility."""
-    global _signal_engine
-    if _signal_engine is None:
-        _signal_engine = AISignalEngine(config)
-    return _signal_engine
+# def get_signal_engine_sync(config: Dict = None) -> AISignalEngine:
+#     """Synchronous wrapper for backward compatibility."""
+#     global _signal_engine
+#     if _signal_engine is None:
+#         _signal_engine = AISignalEngine(config)
+#     return _signal_engine
 
 
 # Convenience function for running async signal generation
-def run_async_signal(
-    symbol: str,
-    data: pd.DataFrame,
-    timeframe: str = "H1",
-    current_price: float = None,
-    config: Dict = None
-) -> AISignal:
-    """
-    Convenience function to run async signal generation from synchronous code.
-    
-    Usage:
-        signal = run_async_signal("EURUSD", df, "H1", 1.0500)
-    """
-    async def _run():
-        engine = await get_signal_engine(config)
-        return await engine.generate_signal(symbol, data, timeframe, current_price)
-    
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If we're already in an async context, create a new loop
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, _run())
-                return future.result()
-        else:
-            return loop.run_until_complete(_run())
-    except RuntimeError:
-        # No event loop exists, create one
-        return asyncio.run(_run())
+# def run_async_signal(
+#     symbol: str,
+#     data: pd.DataFrame,
+#     timeframe: str = "H1",
+#     current_price: float = None,
+#     config: Dict = None
+# ):
+#     async def _run():
+#         engine = await get_signal_engine(config)
+#         return await engine.generate_signal(symbol, data, timeframe, current_price)
+
+#     try:
+#         return asyncio.run(_run())
+#     except RuntimeError:
+#         # fallback kalau sudah ada loop (pytest / jupyter)
+#         loop = asyncio.get_event_loop()
+#         return loop.run_until_complete(_run())

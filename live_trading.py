@@ -2,6 +2,7 @@
 Live Trading Runner v3.0 - Production Ready
 Main entry point for live trading with Gann Quant AI
 """
+import asyncio
 import os
 import sys
 import time
@@ -31,6 +32,11 @@ from core.portfolio_manager import PortfolioManager
 from scanner.hybrid_scanner import HybridScanner
 
 
+SYMBOL_MAP = {
+    "BTC/USDT": "BTCUSD",
+    "ETH/USDT": "ETHUSD"
+}
+
 class LiveTradingBot:
     """
     Production-ready live trading bot integrating:
@@ -58,7 +64,7 @@ class LiveTradingBot:
             raise RuntimeError("Failed to load configuration")
         
         # Trading settings
-        self.symbols = self.config.get('trading', {}).get('symbols', ['BTC-USD'])
+        self.symbols = self.config.get('trading', {}).get('symbols', ['BTC/USDT'])
         self.timeframes = self.config.get('trading', {}).get('timeframes', ['1h', '4h', '1d'])
         self.scan_interval = self.config.get('trading', {}).get('scan_interval', 60)  # seconds
         
@@ -79,7 +85,7 @@ class LiveTradingBot:
         # Signal handlers
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
-        
+        print("CONNECTORS:", self.data_feed.get_available_connectors())
         logger.success("Live Trading Bot initialized")
     
     def _init_engines(self):
@@ -88,6 +94,7 @@ class LiveTradingBot:
         
         # Data feed
         self.data_feed = DataFeed(self.config.get('broker_config', {}))
+        print("BROKER CONFIG:", self.config.get('broker_config'))
         
         # Analysis engines
         self.gann_engine = GannEngine(self.config.get('gann_config', {}))
@@ -120,28 +127,34 @@ class LiveTradingBot:
     
     # ==================== DATA METHODS ====================
     
-    def fetch_data(self, symbol: str, timeframe: str = '1d', days: int = 100) -> Optional[pd.DataFrame]:
-        """Fetch historical data for a symbol"""
+    def fetch_data(self, symbol: str, timeframe: str = '1d', days: int = 100):
         try:
             end_date = datetime.now().strftime('%Y-%m-%d')
             start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-            
+
+            mt5_symbol = SYMBOL_MAP.get(symbol, symbol)
+
             data = self.data_feed.get_historical_data(
-                symbol=symbol,
+                symbol=mt5_symbol,
                 timeframe=timeframe,
                 start_date=start_date,
                 end_date=end_date
             )
-            
+            logger.info(f"FETCH SUCCESS: {mt5_symbol} rows={len(data)}")
+
+            if data is None or data.empty:
+                logger.error(f"NO DATA from MT5 for {mt5_symbol}")
+                return None
+
             return data
-            
+
         except Exception as e:
-            logger.error(f"Failed to fetch data for {symbol}: {e}")
+            logger.error(f"FETCH ERROR {mt5_symbol}: {e}")
             return None
     
     # ==================== ANALYSIS METHODS ====================
     
-    def analyze(self, symbol: str, data: pd.DataFrame) -> Dict:
+    async def analyze(self, symbol: str, data: pd.DataFrame) -> Dict:
         """
         Run full analysis on symbol.
         
@@ -149,6 +162,10 @@ class LiveTradingBot:
             Analysis dictionary with signals and levels
         """
         try:
+            if data is None or data.empty:
+                logger.error(f"No data for {symbol} — skipping analysis")
+                return None
+                
             # Gann analysis
             gann_levels = self.gann_engine.calculate_sq9_levels(data)
             
@@ -166,12 +183,15 @@ class LiveTradingBot:
                 data_with_indicators = data_with_indicators.join(ml_predictions)
             
             # Generate signals
-            signals = self.signal_engine.generate_signals(
-                data_with_indicators, gann_levels, astro_events
+            signals = await self.signal_engine.generate_signals(
+                symbol=symbol,
+                data=data_with_indicators,
+                gann_levels=gann_levels,
+                astro_events=astro_events
             )
-            
+                        
             # Hybrid scanner
-            hybrid_signal = self.hybrid_scanner.scan(data, symbol)
+            hybrid_signal = self.hybrid_scanner.scan(data_with_indicators, symbol)
             
             return {
                 'symbol': symbol,
@@ -181,8 +201,12 @@ class LiveTradingBot:
                 'signals': signals,
                 'hybrid_signal': hybrid_signal,
                 'indicators': {
-                    'mama': data_with_indicators.get('mama', pd.Series()).iloc[-1] if 'mama' in data_with_indicators.columns else None,
-                    'fama': data_with_indicators.get('fama', pd.Series()).iloc[-1] if 'fama' in data_with_indicators.columns else None
+                    'mama': data_with_indicators['mama'].iloc[-1]
+                        if 'mama' in data_with_indicators and not data_with_indicators['mama'].empty
+                        else None,
+                    'fama': data_with_indicators['fama'].iloc[-1]
+                        if 'fama' in data_with_indicators and not data_with_indicators['fama'].empty
+                        else None
                 },
                 'astro_events': astro_events
             }
@@ -232,7 +256,9 @@ class LiveTradingBot:
     def execute_trade(self, trade_params: Dict) -> bool:
         """Execute a trade based on parameters"""
         try:
-            symbol = trade_params['symbol']
+            raw_symbol = trade_params['symbol']
+            symbol = SYMBOL_MAP.get(raw_symbol, raw_symbol)
+            logger.info(f"SYMBOL MAP: {raw_symbol} → {symbol}")
             direction = trade_params['direction']
             
             # Calculate position size
@@ -240,7 +266,7 @@ class LiveTradingBot:
             
             # Use fixed position for simplicity (can be enhanced)
             position_size = 0.01  # 0.01 BTC or equivalent
-            
+            logger.info(f"EXECUTE TRADE: {raw_symbol} → {symbol}")
             # Submit order
             side = 'BUY' if direction == 'BULLISH' else 'SELL'
             
@@ -273,41 +299,36 @@ class LiveTradingBot:
     
     # ==================== MAIN LOOP ====================
     
-    def run_cycle(self):
+    async def run_cycle(self):
         """Run one analysis and trading cycle"""
         logger.info("Starting trading cycle...")
-        
+
         for symbol in self.symbols:
             try:
-                if self.paused:
-                    continue
-                
-                # Fetch data
                 data = self.fetch_data(symbol, '1h', 100)
+
                 if data is None or len(data) < 50:
                     logger.warning(f"Insufficient data for {symbol}")
                     continue
-                
-                # Analyze
-                analysis = self.analyze(symbol, data)
-                if 'error' in analysis:
+
+                analysis = await self.analyze(symbol, data)
+
+                if analysis is None:
                     continue
-                
-                # Store signal
+
                 self._last_signals[symbol] = analysis
-                
-                # Check for trade
+
                 trade_params = self.should_trade(analysis)
+
                 if trade_params:
-                    logger.info(f"Trade signal for {symbol}: {trade_params['direction']} (Confidence: {trade_params['confidence']:.1f}%)")
                     self.execute_trade(trade_params)
-                
+
             except Exception as e:
                 logger.error(f"Cycle error for {symbol}: {e}")
-        
-        logger.info("Trading cycle complete")
+                
+                logger.info("Trading cycle complete")
     
-    def start(self):
+    async def start(self):
         """Start the trading bot"""
         if self.running:
             logger.warning("Bot is already running")
@@ -341,7 +362,7 @@ class LiveTradingBot:
             try:
                 cycle_start = time.time()
                 
-                self.run_cycle()
+                await self.run_cycle()
                 
                 # Wait for next cycle
                 elapsed = time.time() - cycle_start
@@ -349,7 +370,7 @@ class LiveTradingBot:
                 
                 if sleep_time > 0 and self.running:
                     logger.info(f"Next cycle in {sleep_time:.0f}s...")
-                    time.sleep(sleep_time)
+                    await asyncio.sleep(sleep_time)
                     
             except Exception as e:
                 logger.error(f"Main loop error: {e}")
@@ -425,7 +446,7 @@ class LiveTradingBot:
         }
 
 
-def main():
+async def main():
     """Main entry point"""
     import argparse
     
@@ -445,14 +466,31 @@ def main():
     )
     
     try:
-        bot = LiveTradingBot(args.config)
+        config_path = args.config if args.config else "config"
+        bot = LiveTradingBot(config_path)
         
         if args.symbols:
             bot.symbols = args.symbols
         if args.interval:
             bot.scan_interval = args.interval
         
-        bot.start()
+        # sebelum start loop
+        symbol = bot.symbols[0]
+
+        data = bot.fetch_data(symbol, "1h", 200)
+
+        analysis = await bot.analyze(symbol, data)
+
+        if analysis is not None:
+            bot.ml_engine.train_model(
+                price_data=data,
+                gann_levels=analysis.get("gann_levels"),
+                astro_events=analysis.get("astro_events")
+            )
+        else:
+            logger.error("Initial analysis failed — skip ML training")
+
+        await bot.start()
         
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
@@ -462,4 +500,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())

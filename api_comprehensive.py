@@ -491,7 +491,7 @@ def run_scanner():
     """Run market scanner"""
     try:
         data = request.json or {}
-        symbols = data.get('symbols', ['BTC-USD', 'ETH-USD', 'EURUSD', 'GBPUSD'])
+        symbols = data.get('symbols', ['BTC/USDT', 'ETH/USDT', 'EURUSD', 'GBPUSD'])
         
         # Generate scan results
         results = []
@@ -563,7 +563,7 @@ def get_daily_forecast():
     """Get daily price forecast"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         
         forecasts = []
         base_price = np.random.uniform(20000, 50000)
@@ -596,7 +596,7 @@ def get_wave_forecast():
     """Get Gann wave forecast"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         
         return jsonify({
             'symbol': symbol,
@@ -647,7 +647,7 @@ def get_ml_forecast():
     """Get ML-based forecast"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         forecast_days = data.get('forecastDays', 7)
         
         return jsonify({
@@ -684,7 +684,7 @@ def analyze_cycles():
     """Analyze market cycles"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         
         return jsonify({
             'symbol': symbol,
@@ -847,7 +847,7 @@ def gann_full_analysis():
     """Complete Gann analysis"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         gann_config = load_yaml_config('gann_config.yaml') or {}
         
         base_price = np.random.uniform(20000, 50000)
@@ -882,7 +882,7 @@ def gann_vibration_matrix():
     """Get Gann vibration matrix"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         base_price = data.get('basePrice', np.random.uniform(20000, 50000))
         
         return jsonify({
@@ -904,7 +904,7 @@ def gann_supply_demand():
     """Get Gann supply/demand zones"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         base_price = np.random.uniform(20000, 50000)
         
         return jsonify({
@@ -929,7 +929,7 @@ def gann_hexagon():
     """Get Gann hexagon analysis"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         base_price = data.get('basePrice', np.random.uniform(20000, 50000))
         
         return jsonify({
@@ -952,7 +952,7 @@ def gann_box():
     """Get Gann box analysis"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         
         base_price = np.random.uniform(20000, 50000)
         period_high = base_price * 1.1
@@ -979,7 +979,7 @@ def gann_angles():
     """Get Gann angle analysis"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         base_price = data.get('basePrice', np.random.uniform(20000, 50000))
         
         return jsonify({
@@ -1011,7 +1011,7 @@ def ehlers_analyze():
     """Run Ehlers DSP analysis"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         ehlers_config = load_yaml_config('ehlers_config.yaml') or {}
         base_price = np.random.uniform(20000, 50000)
         
@@ -1054,7 +1054,7 @@ def astro_analyze():
     """Run astro analysis"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         astro_config = load_yaml_config('astro_config.yaml') or {}
         
         return jsonify({
@@ -1102,7 +1102,7 @@ def ml_predict():
     """Get ML prediction"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         
         direction = np.random.choice([-1, 0, 1])
         signal_map = {-1: 'SELL', 0: 'NEUTRAL', 1: 'BUY'}
@@ -1373,7 +1373,7 @@ def scan_patterns():
     """Scan for patterns"""
     try:
         data = request.json or {}
-        symbol = data.get('symbol', 'BTC-USD')
+        symbol = data.get('symbol', 'BTC/USDT')
         
         return jsonify({
             'symbol': symbol,
@@ -1409,7 +1409,7 @@ def smith_analyze():
         data = request.json or {}
         
         return jsonify({
-            'symbol': data.get('symbol', 'BTC-USD'),
+            'symbol': data.get('symbol', 'BTC/USDT'),
             'impedance': {
                 'resistance': np.random.uniform(0, 100),
                 'reactance': np.random.uniform(-50, 50)

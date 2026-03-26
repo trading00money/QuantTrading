@@ -32,7 +32,7 @@ def load_config(file_name: str) -> Dict:
         logger.error(f"Error loading configuration from {path}: {e}")
         return {}
 
-def run_backtest(config: Dict):
+async def run_backtest(config: Dict):
     """
     Orchestrates the backtesting process.
     """
@@ -49,11 +49,11 @@ def run_backtest(config: Dict):
     # 2. Get historical data
     # For now, we'll hardcode a symbol and date range for testing.
     # In a real scenario, this would be driven by the backtest config.
-    symbol = "BTC-USD"
+    symbol = "BTC/USDT"
     start_date = "2022-01-01"
     end_date = "2023-01-01"
 
-    price_data = data_feed.get_historical_data(
+    price_data = self.get_historical_data(
         symbol=symbol,
         timeframe="1d",
         start_date=start_date,
@@ -75,7 +75,7 @@ def run_backtest(config: Dict):
         data_with_indicators = data_with_indicators.join(ml_predictions)
 
     # 4. Generate signals
-    signals = signal_engine.generate_signals(data_with_indicators, gann_levels, astro_events)
+    signals = await signal_engine.generate_signals(data_with_indicators, gann_levels, astro_events)
 
     if signals.empty:
         logger.warning("No signals were generated. Backtest cannot proceed.")
@@ -134,7 +134,8 @@ def main():
         return
 
     if args.mode == "backtest":
-        run_backtest(config)
+        import asyncio
+        asyncio.run(run_backtest(config))
     elif args.mode == "scanner":
         from scanner.market_scanner import MarketScanner
         scanner = MarketScanner(config)
@@ -161,8 +162,8 @@ def run_trainer(config: Dict):
     ml_engine = MLEngine(config)
 
     # 2. Fetch a large dataset for training
-    price_data = data_feed.get_historical_data(
-        symbol="BTC-USD",
+    price_data = self.get_historical_data(
+        symbol="BTC/USDT",
         timeframe="1d",
         start_date="2018-01-01",
         end_date="2023-12-31"
