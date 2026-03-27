@@ -7,6 +7,28 @@ import threading
 from typing import Optional, List
 from abc import ABC, abstractmethod
 
+class BaseConnector(ABC):
+
+    @abstractmethod
+    def connect(self):
+        pass
+
+    @abstractmethod
+    def place_market_order(self, symbol, side, qty):
+        pass
+
+    @abstractmethod
+    def place_limit_order(self, symbol, side, qty, price):
+        pass
+
+    @abstractmethod
+    def cancel_order(self, order_id):
+        pass
+
+    @abstractmethod
+    def get_position(self, symbol):
+        pass
+
 
 class ConnectionPoolBase:
     """Base class for connection pooling with thread safety."""

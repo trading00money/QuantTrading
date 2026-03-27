@@ -56,8 +56,8 @@ class DataFeed:
         logger.debug("Initializing data connectors from config...")
         
         trading_modes = self.broker_config.get('trading_modes', [])
-        print("RAW CONFIG:", self.broker_config)
-        print("TRADING MODES:", self.broker_config.get("trading_modes"))
+        # print("RAW CONFIG:", self.broker_config)
+        # print("TRADING MODES:", self.broker_config.get("trading_modes"))
         for mode in trading_modes:
             if not mode.get('enabled', False):
                 continue
@@ -73,8 +73,16 @@ class DataFeed:
                         server=mode.get('mtServer'),
                         broker=mode.get('mtBroker', '')
                     )
-                    from connectors.metatrader_connector import MetaTraderConnector
-                    self.connectors[f"mt_{mode_id}"] = MetaTraderConnector(creds)
+                    from connectors.mt5_connector import MT5Connector
+
+                    connector = MT5Connector(
+                        login=int(mode.get('mtLogin')),
+                        password=mode.get('mtPassword'),
+                        server=mode.get('mtServer')
+                    )
+
+                    connector.connect()
+                    self.connectors[f"mt_{mode_id}"] = connector
                     logger.info(f"Initialized MetaTrader connector: {mode_id}")
                     
                 elif broker_type == "crypto_exchange":
@@ -270,36 +278,36 @@ class DataFeed:
             }
             bars_per_day = tf_bars_per_day.get(timeframe, 24)
             count = max(int(days * bars_per_day), 100)
+            # import asyncio
+            # try:
+            #     loop = asyncio.get_event_loop()
+            #     if loop.is_running():
+            #         # We're in an async context, create a new event loop in a thread
+            #         import concurrent.futures
+            #         with concurrent.futures.ThreadPoolExecutor() as pool:
+            #             data = pool.submit(
+            #                 lambda: asyncio.run(connector.get_historical_data(mt_symbol, timeframe, count))
+            #             ).result(timeout=30)
+            #     else:
+            #         data = loop.run_until_complete(
+            #             connector.get_historical_data(mt_symbol, timeframe, count)
+            #         )
+            # except RuntimeError:
+            #     loop = asyncio.new_event_loop()
+            #     asyncio.set_event_loop(loop)
+            #     data = loop.run_until_complete(
+            #         connector.get_historical_data(mt_symbol, timeframe, count)
+            #     )
+            #     loop.close()
             
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # We're in an async context, create a new event loop in a thread
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as pool:
-                        data = pool.submit(
-                            lambda: asyncio.run(connector.get_historical_data(mt_symbol, timeframe, count))
-                        ).result(timeout=30)
-                else:
-                    data = loop.run_until_complete(
-                        connector.get_historical_data(mt_symbol, timeframe, count)
-                    )
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                data = loop.run_until_complete(
-                    connector.get_historical_data(mt_symbol, timeframe, count)
-                )
-                loop.close()
-            
-            if data and len(data) > 0:
-                df = pd.DataFrame(data)
-                df = self._normalize_columns(df)
+            data = connector.get_historical_data(mt_symbol, timeframe, count)
+
+            if data is not None and not data.empty:
+                df = self._normalize_columns(data)
                 logger.success(f"Successfully fetched {len(df)} rows for {symbol} from MetaTrader.")
                 return df
             else:
-                logger.info(f"MetaTrader connector returned empty data for {mt_symbol} (simulation mode)")
+                logger.warning(f"No data returned for {symbol}")
                 return None
                 
         except Exception as e:

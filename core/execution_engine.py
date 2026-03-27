@@ -101,7 +101,7 @@ class ExecutionEngine:
         # Initialize Binance
         if broker_config.get('binance_futures', {}).get('enabled'):
             try:
-                from core.Binance_connector import BinanceConnector
+                from connectors.binance_connector import BinanceConnector
                 self._connectors[BrokerType.BINANCE] = BinanceConnector(
                     broker_config['binance_futures']
                 )
@@ -112,7 +112,7 @@ class ExecutionEngine:
         # Initialize MT5
         if broker_config.get('metatrader5', {}).get('enabled'):
             try:
-                from core.Metatrader5_bridge import MetaTrader5Bridge
+                from connectors.mt5_connector import MetaTrader5Bridge
                 self._connectors[BrokerType.MT5] = MetaTrader5Bridge(
                     broker_config['metatrader5']
                 )
@@ -190,6 +190,57 @@ class ExecutionEngine:
         Returns:
             Order object
         """
+
+        errors = []
+
+        side_upper = side.upper()
+        order_type_upper = order_type.upper()
+
+        # 1. Validasi side
+        if side_upper not in ["BUY", "SELL"]:
+            errors.append(f"Side tidak valid: {side}")
+
+        # 2. Validasi quantity
+        if quantity is None or quantity <= 0:
+            errors.append(f"Quantity harus > 0, didapat: {quantity}")
+
+        # 3. Validasi price untuk LIMIT order
+        if order_type_upper == "LIMIT":
+            if price is None or price <= 0:
+                errors.append(f"Limit order butuh price > 0, didapat: {price}")
+
+        # 4. Validasi Stop Loss (arah harus benar)
+        if stop_loss is not None and stop_loss > 0:
+            if order_type_upper == "LIMIT":
+                if price is None or price <= 0:
+                    errors.append("Limit order butuh price valid untuk SL")
+
+                else:
+                    if side_upper == "BUY" and stop_loss >= price:
+                        errors.append(f"BUY: SL ({stop_loss}) harus < entry ({price})")
+
+                    if side_upper == "SELL" and stop_loss <= price:
+                        errors.append(f"SELL: SL ({stop_loss}) harus > entry ({price})")
+
+            elif order_type_upper == "MARKET":
+                # SKIP validasi arah di sini
+                # karena harga belum diketahui
+                pass
+
+        # Jika ada error
+        if errors:
+            logger.error(f"Order validation gagal: {errors}")
+
+            return Order(
+                id=self._generate_order_id(),
+                symbol=symbol,
+                side=OrderSide[side_upper],   # ❗ jangan hardcode BUY
+                type=OrderType[order_type_upper],
+                quantity=0,
+                status=OrderStatus.REJECTED,
+                error_message="; ".join(errors),
+            )
+
         order = Order(
             id=self._generate_order_id(),
             symbol=symbol,
@@ -243,6 +294,27 @@ class ExecutionEngine:
                 {"symbol": p.symbol} for p in self.get_all_positions()
             ]
         )
+
+        if order.status == OrderStatus.REJECTED:
+            return order
+
+        order.error_message = ""
+
+        if order.stop_loss > 0:
+            if market_price <= 0:
+                order.status = OrderStatus.REJECTED
+                order.error_message = "Invalid market price"
+                return order
+
+            if order.side == OrderSide.BUY and order.stop_loss >= market_price:
+                order.status = OrderStatus.REJECTED
+                order.error_message = f"BUY: SL ({order.stop_loss}) harus < market ({market_price})"
+                return order
+
+            if order.side == OrderSide.SELL and order.stop_loss <= market_price:
+                order.status = OrderStatus.REJECTED
+                order.error_message = f"SELL: SL ({order.stop_loss}) harus > market ({market_price})"
+                return order
 
         if not decision.approved:
             order.status = OrderStatus.REJECTED
@@ -659,17 +731,18 @@ class ExecutionEngine:
 # Example usage
 if __name__ == "__main__":
     config = {
-        'paper_trading': {
-            'initial_balance': 100000.0
+        "paper_trading": {
+            "initial_balance": 100000.0
         },
-        'risk': {
-            'max_position_size': 0.1,
-            'max_daily_loss': 0.05,
-            'max_open_positions': 5
-        }
+        "risk": {
+            "max_position_size": 0.1,
+            "max_daily_loss": 0.05,
+            "max_open_positions": 5
+        },
+        "broker_config": {}  # penting supaya _initialize_connectors tidak error
     }
     
-    engine = ExecutionEngine(config)
+    engine = ExecutionEngine(config=config)
     
     # Paper trade example
     order = engine.buy_market(

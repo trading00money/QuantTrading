@@ -53,7 +53,7 @@ async def run_backtest(config: Dict):
     start_date = "2022-01-01"
     end_date = "2023-01-01"
 
-    price_data = self.get_historical_data(
+    price_data = data_feed.get_historical_data(
         symbol=symbol,
         timeframe="1d",
         start_date=start_date,
@@ -141,33 +141,35 @@ def main():
         scanner = MarketScanner(config)
         scanner.run_scan()
     elif args.mode == "trainer":
-        run_trainer(config)
+        import asyncio
+        asyncio.run(run_trainer(config))
     elif args.mode == "live":
         run_live()
     else:
         logger.warning(f"Mode '{args.mode}' is not yet implemented.")
 
 
-def run_trainer(config: Dict):
+async def run_trainer(config: Dict):
     """
     Orchestrates the ML model training process.
     """
     logger.info("--- Starting ML Trainer Mode ---")
-
+    
     # 1. Initialize components
     data_feed = DataFeed(broker_config=config.get('broker_config', {}))
     gann_engine = GannEngine(gann_config=config.get('gann_config', {}))
     ehlers_engine = EhlersEngine(ehlers_config=config.get('ehlers_config', {}))
     astro_engine = AstroEngine(astro_config=config.get('astro_config', {}))
     ml_engine = MLEngine(config)
-
+    # print("BROKER CONFIG:", config.get('broker_config'))
     # 2. Fetch a large dataset for training
-    price_data = self.get_historical_data(
-        symbol="BTC/USDT",
-        timeframe="1d",
+    price_data = data_feed.get_historical_data(
+        symbol="BTCUSD",
+        timeframe="D1",
         start_date="2018-01-01",
         end_date="2023-12-31"
     )
+    print("PRICE DATA:", price_data)
     if price_data is None:
         logger.error("Could not fetch data for training. Aborting.")
         return

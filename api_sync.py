@@ -1018,7 +1018,7 @@ def test_broker_connection():
             
             # Test connection based on exchange
             try:
-                from core.Binance_connector import BinanceConnector
+                from connectors.binance_connector import BinanceConnector
                 
                 config = {
                     'api_key': api_key,
@@ -1046,7 +1046,7 @@ def test_broker_connection():
                 return jsonify(result), 400
             
             try:
-                from core.Metatrader5_bridge import MetaTrader5Bridge
+                from connectors.mt5_connector import MetaTrader5Bridge
                 
                 config = {
                     'login': int(login),
@@ -1144,7 +1144,7 @@ def get_binance_balance():
         else:
             return jsonify({"error": "Broker not configured"}), 400
         
-        from core.Binance_connector import BinanceConnector
+        from connectors.binance_connector import BinanceConnector
         connector = BinanceConnector(broker_config.get('binance', {}))
         balance = connector.get_account_balance('USDT')
         
@@ -1162,7 +1162,7 @@ def get_binance_balance():
 def get_mt5_positions():
     """Get MetaTrader 5 open positions"""
     try:
-        from core.Metatrader5_bridge import MetaTrader5Bridge
+        from connectors.mt5_connector import MetaTrader5Bridge
         
         config_path = os.path.join("config", "mt5_config.yaml")
         if os.path.exists(config_path):

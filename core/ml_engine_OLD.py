@@ -50,73 +50,91 @@ class MLEngine:
         gann_levels: Optional[Dict],
         astro_events: Optional[pd.DataFrame]
     ):
+        """
+        Builds features and trains the ML model.
+        """
         logger.info("--- Starting ML Model Training Workflow ---")
-
-        # =========================
-        # 1. BUILD FEATURES (NO TARGET)
-        # =========================
+        # 1. Build features
+        # features_df = self.feature_builder.build_features(
+        #     price_data,
+        #     gann_levels,
+        #     astro_events,
+        #     mode="training"
+        # )
         features_df = self.feature_builder.build_features(
             price_data,
             gann_levels,
             astro_events,
             mode="prediction"   # ❗ TANPA TARGET
         )
-
+        # 🔍 DEBUG WAJIB
+        print("\nCOLUMNS:")
+        print(features_df.columns)
+        # =========================
+        # SPLIT (WAJIB ADA DI SINI)
+        # =========================
         target_period = self.feature_builder.ml_config.get('target_period', 5)
 
-        # =========================
-        # 2. SPLIT
-        # =========================
         split = int(len(features_df) * 0.7)
         gap = target_period * 2
 
         train_df = features_df.iloc[:split - gap].copy()
         test_df = features_df.iloc[split + gap:].copy()
 
-        # train_df = train_df.reset_index(drop=True)
-        # test_df = test_df.reset_index(drop=True)
+        train_df = train_df.reset_index(drop=True)
+        test_df = test_df.reset_index(drop=True)
+
+
+        # =========================
+        # TRAIN
+        # =========================
+        # accuracy, report = self.model.train(train_df)
+        
+        # VALIDASI WAJIB (LANGKAH 6)
+        assert 'target' in features_df.columns, "Target tidak ada!"
+
+        if features_df['target'].nunique() <= 1:
+            raise ValueError("Target hanya 1 kelas → model tidak valid")
+
+        if features_df.iloc[-1].isna().any():
+            raise ValueError("NaN di baris terakhir → future leak / data belum clean")
+
+        print("TARGET DISTRIBUTION:")
+        print(features_df['target'].value_counts())
+
+        if features_df.empty:
+            logger.error("Feature building resulted in an empty DataFrame. Aborting training.")
+            return
+
+        # 2. Train model
+        # SPLIT FITUR DAN TARGET
+        X = features_df.drop(columns=['target'])
+        y = features_df['target']
+
+        assert len(X) == len(y), "X dan y tidak sejajar"
+        assert X.isna().sum().sum() == 0, "Masih ada NaN di fitur"
+
+        # TRAIN
+        accuracy, report = self.model.train(features_df)
 
         print("TRAIN SIZE:", len(train_df))
         print("TEST SIZE:", len(test_df))
         print("TOTAL SIZE:", len(features_df))
-
-        # =========================
-        # 3. CREATE TARGET (SETELAH SPLIT)
-        # =========================
-        import numpy as np
-
-        def create_target(df, price_data, target_period):
-            future_close = price_data['close'].shift(-target_period)
-
-            aligned_future = future_close.loc[df.index]
-            current_close = price_data['close'].loc[df.index]
-
-            future_return = (aligned_future - current_close) / current_close
-
-            df['target'] = np.where(
-                future_return > 0.02, 1,
-                np.where(future_return < -0.02, 0, np.nan)
-            )
-
-            return df.dropna(subset=['target'])
-
-        train_df = create_target(train_df, price_data, target_period)
-        test_df = create_target(test_df, price_data, target_period)
-
-        # =========================
-        # 4. TRAIN (HANYA TRAIN DATA)
-        # =========================
-        accuracy, report = self.model.train(train_df)
 
         print("\n--- Model Evaluation Report (TRAIN) ---")
         print(f"Train Accuracy: {accuracy:.4f}")
         print(report)
 
         # =========================
-        # 5. TEST
+        # TEST (OUT OF SAMPLE)
         # =========================
-        X_test = test_df.drop(columns=['target']).reset_index(drop=True)
-        y_test = test_df['target'].reset_index(drop=True)
+        # Pastikan index align
+        X_test = test_df.drop(columns=['target']).copy()
+        y_test = test_df['target'].copy()
+
+        # RESET INDEX (INI KUNCI)
+        X_test = X_test.reset_index(drop=True)
+        y_test = y_test.reset_index(drop=True)
 
         y_pred = self.model.model.predict(X_test)
 
@@ -124,16 +142,31 @@ class MLEngine:
         for i in range(5):
             print(f"Pred: {y_pred[i]}, Actual: {y_test.iloc[i]}")
 
-        from sklearn.metrics import accuracy_score, classification_report
+        # VALIDASI ALIGNMENT
+        assert len(y_pred) == len(y_test), "Length mismatch!"
+        
         import numpy as np
+        from sklearn.metrics import accuracy_score
+
+        # 🔥 SHUFFLE TEST (DETEKSI LEAKAGE)
+        y_test_shuffled = np.random.permutation(y_test)
 
         print("\nSHUFFLE TEST:")
         print("Original acc:", accuracy_score(y_test, y_pred))
-        print("Shuffled acc:", accuracy_score(np.random.permutation(y_test), y_pred))
+        print("Shuffled acc:", accuracy_score(y_test_shuffled, y_pred))
 
+        from sklearn.metrics import classification_report
         print("\n--- OUT OF SAMPLE TEST ---")
         print(classification_report(y_test, y_pred))
 
+
+        print("\n--- Model Evaluation Report ---")
+        print(f"Test Set Accuracy: {accuracy:.4f}")
+        print(report)
+        print("-------------------------------")
+        print("MODEL PATH:", self.ml_config.get("model_paths"))
+        print("ML CONFIG:", self.ml_config)
+        print(y.value_counts(normalize=True))
         logger.info("--- ML Model Training Workflow Finished ---")
 
     def get_predictions(
@@ -217,4 +250,18 @@ class MLEngine:
         logger.success(f"Generated {len(predictions_df)} ML predictions")
 
         return predictions_df
+    
+    def create_target(df, target_period):
+        future_return = (
+            df['close'].shift(-target_period) - df['close']
+        ) / df['close']
 
+        df['target'] = np.where(
+            future_return > 0.02, 1,
+            np.where(future_return < -0.02, 0, np.nan)
+        )
+
+        return df.dropna(subset=['target'])
+
+    train_df = create_target(train_df, target_period)
+    test_df = create_target(test_df, target_period)
