@@ -269,7 +269,7 @@ class AISignalEngine:
         # DEBUG (optional tapi penting)
         # =============================
         for c in components:
-            print("DEBUG:", c.source, c.signal, c.confidence, c.weight, c.details)
+
 
         # =============================
         # ✅ Fusion Engine
@@ -454,8 +454,8 @@ class AISignalEngine:
                     'nearest_resistance': nearest_resistance
                 }
             )
-            print("DATE:", date)
-            print("PHASES RAW:", phases)
+
+
         try:
             return await self._run_in_executor(_sync_analyze)
         except Exception as e:
@@ -498,7 +498,7 @@ class AISignalEngine:
             for phase in phases:    
                 cycle = phase.get('cycle', '').lower().replace(" ", "").replace("-", "")
                 weight = CYCLE_WEIGHTS.get(cycle, 0)
-                print("CYCLE:", cycle, "WEIGHT:", weight)
+                 
                 if weight == 0:
                     continue
 
@@ -530,7 +530,7 @@ class AISignalEngine:
             if vol < 0.001:
                 signal = SignalType.HOLD
 
-            if composite_score > 0.25 and trend == "UP":
+            elif composite_score > 0.25 and trend == "UP":
                 signal = SignalType.BUY
             elif composite_score < -0.25 and trend == "DOWN":
                 signal = SignalType.SELL
@@ -857,7 +857,7 @@ class AISignalEngine:
             penalty = 0.9
         else:
             penalty = 1.0
-    
+        return penalty
     
     def _combine_signals(self, components: List[SignalComponent]) -> Tuple[SignalType, float, SignalStrength]:
         """Combine all signal components into final signal."""
@@ -914,7 +914,7 @@ class AISignalEngine:
         gap = abs(buy_score - sell_score)
 
         if gap < 0.1:
-            dominant = "HOLD"
+            signal = SignalType.HOLD
             confidence = 50
         if confidence >= 80:
             strength = SignalStrength.VERY_STRONG
