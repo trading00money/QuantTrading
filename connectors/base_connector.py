@@ -14,22 +14,38 @@ class BaseConnector(ABC):
         pass
 
     @abstractmethod
-    def place_market_order(self, symbol, side, qty):
+    def get_price(self, symbol):
+        """Return {'bid': float, 'ask': float}"""
         pass
 
     @abstractmethod
-    def place_limit_order(self, symbol, side, qty, price):
+    def place_market_order(
+        self,
+        symbol,
+        side,
+        qty,
+        stop_loss=None,
+        take_profit=None
+    ):
+        """Return standardized order dict"""
+        pass
+
+    @abstractmethod
+    def place_limit_order(
+        self,
+        symbol,
+        side,
+        qty,
+        price,
+        stop_loss=None,
+        take_profit=None
+    ):
         pass
 
     @abstractmethod
     def cancel_order(self, order_id):
         pass
-
-    @abstractmethod
-    def get_position(self, symbol):
-        pass
-
-
+        
 class ConnectionPoolBase:
     """Base class for connection pooling with thread safety."""
     

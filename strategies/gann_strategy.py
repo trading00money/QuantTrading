@@ -39,7 +39,36 @@ class GannStrategy(BaseStrategy):
             pct_diff = abs(current_price - nearest_level) / nearest_level if nearest_level > 0 else 1.0
             
             if pct_diff <= self.tolerance:
-                # Potential interaction
+                # Volume confirmation
+                has_volume = 'volume' in df.columns
+                if has_volume:
+                    avg_vol = df['volume'].rolling(20).mean().iloc[-1]
+                    cur_vol = df['volume'].iloc[-1]
+                    vol_ratio = cur_vol / avg_vol if avg_vol > 0 else 1.0
+                else:
+                    vol_ratio = 1.0
+            
+                # Trend context dari SMA 50
+                sma50 = df['close'].rolling(50).mean().iloc[-1]
+                trend_bullish = current_price > sma50
+                trend_bearish = current_price < sma50
+            
+                # Bounce + volume spike + trend alignment = strong signal
+                if (current_price > nearest_level and
+                    current_price > prev_price):  # Bounce
+                    base_conf = 0.55
+                    if vol_ratio > 1.5: 
+                        base_conf += 0.10   # Volume confirm
+                    if trend_bullish: 
+                        base_conf += 0.10   # Trend confirm
+
+                    signals.append({
+                        'symbol': symbol,
+                        'type': 'BUY',
+                        'confidence': min(0.90, base_conf),
+                        'reason': f"Gann bounce {nearest_level:.2f} "
+                                f"(vol:{vol_ratio:.1f}x, trend:{'UP' if trend_bullish else 'DOWN'})"
+                    })
                 
                 # Check for bounce (Bullish)
                 # If we were above, dipped near, and are now moving up

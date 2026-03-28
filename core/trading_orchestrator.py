@@ -67,7 +67,7 @@ class TradingOrchestrator:
         self._data_feed = None
         self._signal_engine = None
         self._execution_gate = None
-        self._risk_engine = None
+        
         self._execution_engine = None
         self._account_manager = None
         
@@ -87,7 +87,6 @@ class TradingOrchestrator:
         
         # Trading loop
         self._running = False
-        self._trading_thread: Optional[threading.Thread] = None
         
         # Event callbacks
         self._on_signal_callbacks: List[Callable] = []
@@ -115,14 +114,10 @@ class TradingOrchestrator:
             from core.execution_gate import get_execution_gate
             self._execution_gate = get_execution_gate()
             
-            # Risk Engine
-            from core.risk_engine import get_risk_engine
-            self._risk_engine = get_risk_engine()
-            
             # Execution Engine
-            from core.live_execution_engine import get_execution_engine
-            self._execution_engine = get_execution_engine()
-            
+            from core.execution_engine import ExecutionEngine
+            self._execution_engine = ExecutionEngine(self.config)
+            self._execution_gate.execution_engine = self._execution_engine
             # Account Manager
             from core.multi_account_manager import get_multi_account_manager
             self._account_manager = get_multi_account_manager()
@@ -145,9 +140,7 @@ class TradingOrchestrator:
             
             # Agent Orchestrator
             from agent.agent_orchestrator import get_agent_orchestrator
-            self._agent_orchestrator = get_agent_orchestrator(
-                risk_engine=self._risk_engine
-            )
+            self._agent_orchestrator = get_agent_orchestrator()
             
             # Register mode change callback
             self._mode_controller.on_mode_change(self._on_mode_changed)
@@ -190,13 +183,6 @@ class TradingOrchestrator:
         if self.symbols:
             await self._data_feed.subscribe_ticks(self.symbols)
         
-        # Initialize risk engine with account balance
-        default_account = self._account_manager.get_default_account()
-        if default_account and default_account.balance:
-            self._risk_engine.initialize_equity(default_account.balance.total)
-        else:
-            self._risk_engine.initialize_equity(10000)  # Default
-        
         # Create session
         self._current_session = TradingSession(
             id=f"SESSION_{int(datetime.now().timestamp())}",
@@ -206,8 +192,7 @@ class TradingOrchestrator:
         
         # Start trading loop
         self._running = True
-        self._trading_thread = threading.Thread(target=self._trading_loop, daemon=True)
-        self._trading_thread.start()
+        asyncio.create_task(self._trading_loop())
         
         self.state = OrchestratorState.RUNNING
         logger.success(f"Trading orchestrator started - Session: {self._current_session.id}")
@@ -217,10 +202,6 @@ class TradingOrchestrator:
     async def stop(self) -> bool:
         """Stop trading orchestrator."""
         self._running = False
-        
-        # Wait for trading thread
-        if self._trading_thread and self._trading_thread.is_alive():
-            self._trading_thread.join(timeout=5)
         
         # Stop data feed
         if self._data_feed:
@@ -254,8 +235,6 @@ class TradingOrchestrator:
         logger.info("Trading loop started")
         
         while self._running:
-            await self._execute_cycle()
-
             try:
                 if self.state != OrchestratorState.RUNNING:
                     
@@ -264,7 +243,7 @@ class TradingOrchestrator:
                 
                 # Process each symbol
                 for symbol in self.symbols:
-                    self._process_symbol(symbol)
+                    await self._process_symbol(symbol)
                 
                 # Wait for next scan
                 await asyncio.sleep(self.scan_interval_seconds)
@@ -280,11 +259,11 @@ class TradingOrchestrator:
         
         logger.info("Trading loop stopped")
     
-    def _process_symbol(self, symbol: str):
+    async def _process_symbol(self, symbol: str):
         """Process a single symbol through the full pipeline (mode-aware)."""
         try:
-            
             for timeframe in self.timeframes:
+                df = self._data_feed.get_latest_data(symbol, timeframe)
                 if df is None or len(df) < 50:
                     continue
                 
@@ -372,43 +351,26 @@ class TradingOrchestrator:
                     
                     # Get default account
                     account = self._account_manager.get_default_account()
-                    exchange = account.exchange if account else "binance"
+                    exchange = account.exchange if account else "paper"
                     account_id = account.id if account else "default"
-                    
-                    # Process through execution gate
-                    entry = routed_signal.entry_price
-                    sl = routed_signal.stop_loss
-                    tp = routed_signal.take_profit
 
-                    if routed_signal.signal.value in ["BUY", "STRONG_BUY"]:
-                        side = "BUY"
-                    else:
-                        side = "SELL"
-
-                    order = self._execution_engine.create_order(
-                        symbol=symbol,
-                        side=side,
-                        order_type="MARKET",
-                        quantity=1,
-                        stop_loss=sl,
-                        take_profit=tp
+                    request = await self._execution_gate.process_signal(
+                        signal=routed_signal,
+                        account_id=account_id,
+                        exchange=exchange
                     )
-
-                    result = self._execution_engine.submit_order(order)
                     
                     # Track trade
-                    if result.status.value == 'executed':
+                    if request.status.value == 'executed':
                         if self._current_session:
                             self._current_session.total_trades += 1
                         
                         # Notify trade callbacks
                         for callback in self._on_trade_callbacks:
                             try:
-                                callback(result)
+                                callback(request)
                             except Exception as e:
                                 logger.warning(f"Trade callback error: {e}")
-            
-            loop.close()
             
         except Exception as e:
             logger.error(f"Error processing {symbol}: {e}")
@@ -421,11 +383,6 @@ class TradingOrchestrator:
         """Add symbol to watch list."""
         if symbol not in self.symbols:
             self.symbols.append(symbol)
-            
-            # Subscribe if running
-            if self._data_feed and self._running:
-                loop.close()
-            
             logger.info(f"Added symbol: {symbol}")
     
     def remove_symbol(self, symbol: str):
@@ -508,7 +465,6 @@ class TradingOrchestrator:
                 'data_feed': self._data_feed is not None,
                 'signal_engine': self._signal_engine is not None,
                 'execution_gate': self._execution_gate is not None,
-                'risk_engine': self._risk_engine is not None,
                 'execution_engine': self._execution_engine is not None,
                 'mode_controller': self._mode_controller is not None,
                 'strategy_router': self._strategy_router is not None,

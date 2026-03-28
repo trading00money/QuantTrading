@@ -13,7 +13,6 @@ import time
 import json
 
 from core.signal_engine import AISignal, SignalType, get_signal_engine
-from core.risk_engine import RiskEngine, RiskCheckResult, get_risk_engine
 from connectors.exchange_connector import (
     Order, OrderSide, OrderType, OrderStatus, 
     ExchangeConnectorFactory, ExchangeCredentials
@@ -47,7 +46,6 @@ class ExecutionRequest:
     position_size: float
     leverage: int = 1
     status: ExecutionStatus = ExecutionStatus.PENDING
-    risk_check_result: Optional[RiskCheckResult] = None
     order: Optional[Order] = None
     timestamp: datetime = field(default_factory=datetime.now)
     metadata: Dict = field(default_factory=dict)
@@ -66,13 +64,15 @@ class ExecutionGate:
     """
     
     def __init__(self, config: Dict = None):
+        
         self.config = config or {}
         self.trading_mode = TradingMode(self.config.get('trading_mode', 'manual'))
         self.paper_trading = self.config.get('paper_trading', True)
-        
+
+        self.execution_engine = None  # akan di-inject dari orchestrator
+
         # Engines
         self.signal_engine = get_signal_engine()
-        self.risk_engines: Dict[str, RiskEngine] = {}
         
         # Execution tracking
         self.pending_requests: Dict[str, ExecutionRequest] = {}
@@ -92,12 +92,6 @@ class ExecutionGate:
         """Set trading mode."""
         self.trading_mode = mode
         logger.info(f"Trading mode set to: {mode.value}")
-    
-    def get_risk_engine(self, account_id: str) -> RiskEngine:
-        """Get or create risk engine for account."""
-        if account_id not in self.risk_engines:
-            self.risk_engines[account_id] = get_risk_engine(account_id)
-        return self.risk_engines[account_id]
     
     async def process_signal(
         self,
@@ -128,7 +122,7 @@ class ExecutionGate:
             trading_mode=self.trading_mode,
             account_id=account_id,
             exchange=exchange,
-            position_size=position_size or 0,
+            position_size = position_size if position_size and position_size > 0 else None,
             leverage=leverage
         )
         
@@ -144,43 +138,6 @@ class ExecutionGate:
             request.status = ExecutionStatus.REJECTED
             request.metadata['rejection_reason'] = "HOLD signal - no action"
             return request
-        
-        # 3. Risk check
-        risk_engine = self.get_risk_engine(account_id)
-        
-        # Calculate position size if not provided
-        if position_size is None or position_size <= 0:
-            sizing = risk_engine.calculate_position_size(
-                account_balance=risk_engine.current_equity or 10000,
-                entry_price=signal.entry_price,
-                stop_loss=signal.stop_loss
-            )
-            request.position_size = sizing.get('position_size', 0.01)
-        
-        # Run risk check
-        risk_result = risk_engine.check_trade_risk(
-            symbol=signal.symbol,
-            side='buy' if signal.signal in [SignalType.BUY, SignalType.STRONG_BUY] else 'sell',
-            order_type='market',
-            quantity=request.position_size,
-            price=signal.entry_price,
-            stop_loss=signal.stop_loss,
-            leverage=leverage
-        )
-        
-        request.risk_check_result = risk_result
-        
-        if not risk_result.passed:
-            request.status = ExecutionStatus.REJECTED
-            request.metadata['rejection_reason'] = "Risk check failed"
-            request.metadata['violations'] = [v.value for v in risk_result.violations]
-            logger.warning(f"Execution rejected: Risk violations {risk_result.violations}")
-            return request
-        
-        # Adjust position size if recommended
-        if risk_result.adjusted_position_size:
-            request.position_size = risk_result.adjusted_position_size
-            logger.info(f"Position size adjusted to {request.position_size}")
         
         # 4. Mode-specific handling
         if self.trading_mode == TradingMode.MANUAL:
@@ -211,7 +168,7 @@ class ExecutionGate:
         elif self.trading_mode == TradingMode.PAPER_TRADING:
             # Simulate execution
             request.status = ExecutionStatus.APPROVED
-            await self._simulate_execution(request)
+            await self._execute_order(request)
         
         # Store in history
         self.execution_history.append(request)
@@ -230,8 +187,6 @@ class ExecutionGate:
         request.status = ExecutionStatus.APPROVED
         
         if self.paper_trading:
-            await self._simulate_execution(request)
-        else:
             await self._execute_order(request)
         
         return request
@@ -249,104 +204,95 @@ class ExecutionGate:
         return request
     
     async def _execute_order(self, request: ExecutionRequest) -> bool:
-        """Execute order on exchange."""
+        """Execute order via ExecutionEngine (single source of truth)."""
         try:
-            # Get connector
-            connector = ExchangeConnectorFactory.get_connector(
-                request.exchange,
-                request.account_id
-            )
-            
-            if not connector or not connector.is_connected:
-                request.status = ExecutionStatus.FAILED
-                request.metadata['error'] = "Exchange not connected"
-                return False
-            
-            # Determine order side
-            side = OrderSide.BUY if request.signal.signal in [
+            # ========================
+            # 1. Determine side
+            # ========================
+            side = "BUY" if request.signal.signal in [
                 SignalType.BUY, SignalType.STRONG_BUY
-            ] else OrderSide.SELL
-            
-            # Create order
-            order = Order(
-                id="",
-                client_order_id=f"AI_{request.id}",
+            ] else "SELL"
+
+            # ========================
+            # 2. Broker mapping (clean & scalable)
+            # ========================
+            BROKER_MAP = {
+                "binance": "binance",
+                "mt5": "mt5",
+                "metatrader5": "mt5"
+            }
+
+            broker = BROKER_MAP.get(request.exchange, "paper")
+
+            # ========================
+            # 3. Position sizing (safe fallback)
+            # ========================
+            quantity = request.position_size or self.config.get("default_position_size", 0.01)
+
+            if quantity <= 0:
+                request.status = ExecutionStatus.FAILED
+                request.metadata['error'] = "Invalid position size"
+                return False
+
+            # ========================
+            # 4. Create order
+            # ========================
+            order = self.execution_engine.create_order(
                 symbol=request.signal.symbol,
                 side=side,
-                type=OrderType.MARKET,
-                amount=request.position_size,
+                order_type="MARKET",
+                quantity=quantity,
                 price=request.signal.entry_price,
-                leverage=request.leverage
+                stop_loss=request.signal.stop_loss,
+                take_profit=request.signal.take_profit,
+                broker=broker
             )
-            
-            # Execute
-            executed_order = await connector.create_order(order)
+
+            # ========================
+            # 5. Submit order (ONLY ONCE)
+            # ========================
+            executed_order = self.execution_engine.submit_order(order)
+
+            # ========================
+            # 6. Save result
+            # ========================
             request.order = executed_order
-            
-            if executed_order.status == OrderStatus.OPEN or executed_order.status == OrderStatus.FILLED:
+
+            # ========================
+            # 7. Handle result
+            # ========================
+            if executed_order.status in [OrderStatus.FILLED, OrderStatus.SUBMITTED]:
                 request.status = ExecutionStatus.EXECUTED
-                logger.success(f"Order executed: {executed_order.id}")
-                
-                # Notify callbacks
+
+                logger.success(
+                    f"[EXECUTED] {side} {quantity} {order.symbol} @ {executed_order.avg_fill_price} ({broker})"
+                )
+
+                # Callbacks
                 for callback in self._execution_callbacks:
                     try:
                         callback(request)
                     except Exception as e:
                         logger.error(f"Execution callback error: {e}")
-                
+
                 return True
+
             else:
                 request.status = ExecutionStatus.FAILED
-                request.metadata['error'] = "Order rejected by exchange"
+                request.metadata['error'] = "Order rejected by execution engine"
+
+                logger.warning(
+                    f"[REJECTED] {side} {quantity} {order.symbol} ({broker})"
+                )
+
                 return False
-                
+
         except Exception as e:
             logger.error(f"Order execution failed: {e}")
+
             request.status = ExecutionStatus.FAILED
             request.metadata['error'] = str(e)
-            return False
-    
-    async def _simulate_execution(self, request: ExecutionRequest) -> bool:
-        """Simulate order execution for paper trading."""
-        try:
-            side = OrderSide.BUY if request.signal.signal in [
-                SignalType.BUY, SignalType.STRONG_BUY
-            ] else OrderSide.SELL
-            
-            # Create simulated order
-            order = Order(
-                id=f"PAPER_{int(time.time() * 1000)}",
-                client_order_id=f"PAPER_AI_{request.id}",
-                symbol=request.signal.symbol,
-                side=side,
-                type=OrderType.MARKET,
-                amount=request.position_size,
-                price=request.signal.entry_price,
-                status=OrderStatus.FILLED,
-                filled=request.position_size,
-                average_price=request.signal.entry_price,
-                exchange="paper",
-                account_id=request.account_id
-            )
-            
-            request.order = order
-            request.status = ExecutionStatus.EXECUTED
-            request.metadata['paper_trade'] = True
-            
-            logger.success(f"Paper trade executed: {order.id}")
-            
-            # Notify callbacks
-            for callback in self._execution_callbacks:
-                try:
-                    callback(request)
-                except Exception as e:
-                    logger.error(f"Execution callback error: {e}")
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Paper trade simulation failed: {e}")
-            request.status = ExecutionStatus.FAILED
+
             return False
     
     def activate_kill_switch(self, reason: str = None):
@@ -411,14 +357,12 @@ class ExecutionGate:
         ]
     
     def get_status(self) -> Dict:
-        """Get execution gate status."""
         return {
             'trading_mode': self.trading_mode.value,
             'paper_trading': self.paper_trading,
             'kill_switch_active': self.global_kill_switch,
             'pending_requests': len(self.pending_requests),
             'total_executions': len(self.execution_history),
-            'accounts_active': len(self.risk_engines)
         }
 
 
@@ -454,10 +398,6 @@ if __name__ == "__main__":
             take_profit=47000.0,
             risk_reward=2.0
         )
-        
-        # Initialize risk engine with equity
-        risk_engine = gate.get_risk_engine("test_account")
-        risk_engine.initialize_equity(10000)
         
         # Process signal
         result = await gate.process_signal(

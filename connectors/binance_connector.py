@@ -62,7 +62,7 @@ class BinanceConnector(BaseConnector):
         
         self.leverage = config.get('trading', {}).get('leverage', 10)
         self.margin_type = config.get('trading', {}).get('margin_type', 'ISOLATED')
-        
+        self._order_symbol_map = {}
         # WebSocket callbacks
         self._price_callbacks: List[Callable] = []
         self._ws_client = None
@@ -158,6 +158,10 @@ class BinanceConnector(BaseConnector):
             logger.error(f"Failed to get account balance: {e}")
             return {'asset': asset, 'free': 0, 'locked': 0, 'total': 0, 'error': str(e)}
     
+    def get_price(self, symbol):
+        price = self.get_ticker_price(symbol)
+        return {"bid": price, "ask": price}
+
     def get_position(self, symbol: str) -> Optional[Dict]:
         """
         Get current position for a symbol.
@@ -329,7 +333,7 @@ class BinanceConnector(BaseConnector):
     
     # ==================== ORDER MANAGEMENT ====================
     
-    def place_market_order(
+    def place_market_order_binance(
         self,
         symbol: str,
         side: str,
@@ -392,7 +396,38 @@ class BinanceConnector(BaseConnector):
             logger.error(f"Failed to place market order: {e}")
             return None
     
-    def place_limit_order(
+    def place_market_order(
+        self,
+        symbol,
+        side,
+        qty,
+        stop_loss=None,
+        take_profit=None
+    ):
+        """
+        Adapter ke interface universal (dipakai ExecutionEngine)
+        """
+
+        result = self.place_market_order_binance(
+            symbol=symbol,
+            side=side,
+            quantity=qty
+        )
+
+        if result and result.get("order_id"):
+            self._order_symbol_map[result["order_id"]] = symbol
+
+        if not result:
+            return None
+
+        return {
+            "order_id": result.get("order_id"),
+            "price": result.get("avg_price", 0),
+            "filled_qty": result.get("executed_qty", qty),
+            "status": result.get("status", "FILLED")
+        }
+
+    def place_limit_order_binance(
         self,
         symbol: str,
         side: str,
@@ -445,6 +480,55 @@ class BinanceConnector(BaseConnector):
             logger.error(f"Failed to place limit order: {e}")
             return None
     
+    def place_limit_order(
+        self,
+        symbol,
+        side,
+        qty,
+        price,
+        stop_loss=None,
+        take_profit=None
+    ):
+        """
+        Adapter ke interface universal (dipakai ExecutionEngine)
+        """
+
+        result = self.place_limit_order_binance(
+            symbol=symbol,
+            side=side,
+            quantity=qty,
+            price=price
+        )
+
+        if result and result.get("order_id"):
+            self._order_symbol_map[result["order_id"]] = symbol
+
+        if not result:
+            return None
+
+        return {
+            "order_id": result.get("order_id"),
+            "price": result.get("price", price),
+            "filled_qty": result.get("quantity", 0),
+            "status": result.get("status", "SUBMITTED")
+        }
+
+    def place_stop_order(self, symbol, side, qty, stop_price):
+        result = self.place_stop_loss(
+            symbol=symbol,
+            side=side,
+            quantity=qty,
+            stop_price=stop_price
+        )
+
+        if not result:
+            return None
+
+        return {
+            "order_id": result.get("order_id"),
+            "status": result.get("status", "SUBMITTED")
+        }
+        
     def place_stop_loss(
         self,
         symbol: str,
@@ -548,7 +632,7 @@ class BinanceConnector(BaseConnector):
             logger.error(f"Failed to place take-profit: {e}")
             return None
     
-    def cancel_order(self, symbol: str, order_id: int) -> bool:
+    def cancel_order_binance(self, symbol: str, order_id: int) -> bool:
         """Cancel an open order"""
         try:
             self._rate_limit()
@@ -571,6 +655,19 @@ class BinanceConnector(BaseConnector):
             logger.error(f"Failed to cancel order: {e}")
             return False
     
+    def cancel_order(self, order_id):
+        """
+        Adapter universal (dipakai ExecutionEngine)
+        """
+
+        symbol = self._order_symbol_map.get(order_id)
+
+        if not symbol:
+            logger.error(f"Symbol not found for order_id {order_id}")
+            return False
+
+        return self.cancel_order_binance(symbol, int(order_id))
+
     def cancel_all_orders(self, symbol: str) -> bool:
         """Cancel all open orders for a symbol"""
         try:

@@ -112,11 +112,18 @@ class ExecutionEngine:
         # Initialize MT5
         if broker_config.get('metatrader5', {}).get('enabled'):
             try:
-                from connectors.mt5_connector import MetaTrader5Bridge
-                self._connectors[BrokerType.MT5] = MetaTrader5Bridge(
-                    broker_config['metatrader5']
-                )
-                logger.success("MT5 connector initialized")
+                from connectors.mt5_connector import MT5Connector
+
+                mt5_connector = MT5Connector(broker_config['metatrader5'])
+
+                # 🔥 OPTIONAL: langsung connect saat init
+                if not mt5_connector.connect():
+                    raise RuntimeError("MT5 connection failed")
+
+                self._connectors[BrokerType.MT5] = mt5_connector
+
+                logger.success("MT5 connector initialized (MT5 API)")
+
             except Exception as e:
                 logger.error(f"Failed to initialize MT5: {e}")
     
@@ -241,6 +248,20 @@ class ExecutionEngine:
                 error_message="; ".join(errors),
             )
 
+        if isinstance(broker, BrokerType):
+            broker_enum = broker
+
+        elif isinstance(broker, str):
+            try:
+                broker_enum = BrokerType(broker.lower())
+            except Exception:
+                logger.warning(f"Invalid broker '{broker}', fallback to PAPER")
+                broker_enum = BrokerType.PAPER
+
+        else:
+            logger.warning(f"Invalid broker type '{broker}', fallback to PAPER")
+            broker_enum = BrokerType.PAPER
+
         order = Order(
             id=self._generate_order_id(),
             symbol=symbol,
@@ -251,7 +272,7 @@ class ExecutionEngine:
             stop_price=stop_price,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            broker=BrokerType(broker)
+            broker=broker_enum
         )
         
         with self._lock:
@@ -261,26 +282,43 @@ class ExecutionEngine:
         return order
     
     def _get_market_price(self, order: Order) -> float:
-        """Ambil harga real dari broker / fallback."""
+        """Ambil harga real dari broker (NO fallback fake price)."""
 
         connector = self._connectors.get(order.broker)
 
-        try:
-            if connector:
-                if order.broker == BrokerType.BINANCE:
-                    ticker = connector.get_symbol_price(order.symbol)
-                    return float(ticker.get("price", 0))
+        if not connector:
+            raise RuntimeError(f"Connector tidak ditemukan untuk {order.broker}")
 
-                elif order.broker == BrokerType.MT5:
-                    tick = connector.get_tick(order.symbol)
-                    return tick.ask if order.side == OrderSide.BUY else tick.bid
+        try:
+            price_data = connector.get_price(order.symbol)
+
+            if not price_data:
+                raise ValueError("Price data kosong")
+
+            bid = price_data.get("bid")
+            ask = price_data.get("ask")
+
+            if bid is None or ask is None:
+                raise ValueError(f"Invalid price format: {price_data}")
+
+            return ask if order.side == OrderSide.BUY else bid
 
         except Exception as e:
-            logger.warning(f"Failed to get market price: {e}")
+            raise RuntimeError(f"Gagal ambil market price: {e}")
 
-        # fallback terakhir (paper / error)
-        return order.price if order.price > 0 else 50000.0
-
+    def _get_market_price_from_symbol(self, symbol: str, side: OrderSide) -> float:
+        """Helper untuk ambil harga market tanpa Order object."""
+        
+        dummy_order = Order(
+            id="DUMMY",
+            symbol=symbol,
+            side=side,
+            type=OrderType.MARKET,
+            quantity=0.0
+        )
+        
+        return self._get_market_price(dummy_order)
+        
     def submit_order(self, order: Order) -> Order:
         market_price = self._get_market_price(order)
 
@@ -361,142 +399,184 @@ class ExecutionEngine:
             return order
     
     def _execute_market_order(self, order: Order, connector) -> Order:
-        """Execute market order on broker"""
-        if order.broker == BrokerType.BINANCE:
-            result = connector.place_market_order(
-                symbol=order.symbol,
-                side=order.side.value,
-                quantity=order.quantity
-            )
-        elif order.broker == BrokerType.MT5:
-            result = connector.place_market_order(
-                symbol=order.symbol,
-                side=order.side.value,
-                lot=order.quantity,
-                stop_loss=order.stop_loss,
-                take_profit=order.take_profit
-            )
-        else:
-            result = None
-        
+        result = connector.place_market_order(
+            symbol=order.symbol,
+            side=order.side.value,
+            qty=order.quantity,
+            stop_loss=order.stop_loss,
+            take_profit=order.take_profit
+        )
+
         if result:
             order.status = OrderStatus.FILLED
-            order.broker_order_id = str(result.get('order_id', ''))
-            order.filled_quantity = result.get('executed_qty', order.quantity)
-            order.avg_fill_price = result.get('avg_price', result.get('price', 0))
+            order.broker_order_id = str(result.get('order_id'))
+            order.filled_quantity = result.get('filled_qty', order.quantity)
+            order.avg_fill_price = result.get('price', 0)
             order.updated_at = datetime.now()
-            
-            # Update position
+
             self._update_position_from_order(order)
-            
-            # Place SL/TP orders
-            self._place_bracket_orders(order, connector)
+
+            # 🔥 TARUH DI SINI (SETELAH FILLED)
+            if order.broker != BrokerType.MT5:
+                self._place_bracket_orders(order, connector)
+
         else:
             order.status = OrderStatus.REJECTED
-            order.error_message = "Broker returned no result"
-        
+            order.error_message = "Order gagal"
+
         return order
     
     def _execute_limit_order(self, order: Order, connector) -> Order:
-        """Execute limit order on broker"""
-        if order.broker == BrokerType.BINANCE:
-            result = connector.place_limit_order(
-                symbol=order.symbol,
-                side=order.side.value,
-                quantity=order.quantity,
-                price=order.price
-            )
-        elif order.broker == BrokerType.MT5:
-            result = connector.place_limit_order(
-                symbol=order.symbol,
-                side=order.side.value,
-                lot=order.quantity,
-                price=order.price,
-                stop_loss=order.stop_loss,
-                take_profit=order.take_profit
-            )
-        else:
-            result = None
-        
+        """Execute limit order (broker-agnostic)"""
+
+        result = connector.place_limit_order(
+            symbol=order.symbol,
+            side=order.side.value,
+            qty=order.quantity,
+            price=order.price,
+            stop_loss=order.stop_loss,
+            take_profit=order.take_profit
+        )
+
         if result:
             order.status = OrderStatus.SUBMITTED
-            order.broker_order_id = str(result.get('order_id', ''))
+            order.broker_order_id = str(result.get('order_id'))
             order.updated_at = datetime.now()
         else:
             order.status = OrderStatus.REJECTED
-            order.error_message = "Broker returned no result"
-        
+            order.error_message = "Order gagal"
+
         return order
     
     def _execute_stop_order(self, order: Order, connector) -> Order:
-        """Execute stop order on broker"""
-        if order.broker == BrokerType.BINANCE:
-            if order.type == OrderType.STOP_LOSS:
-                close_side = 'SELL' if order.side == OrderSide.BUY else 'BUY'
-                result = connector.place_stop_loss(
-                    symbol=order.symbol,
-                    side=close_side,
-                    quantity=order.quantity,
-                    stop_price=order.stop_price
-                )
-            else:
-                result = None
-        else:
-            result = None
-        
+        result = connector.place_stop_order(
+            symbol=order.symbol,
+            side=order.side.value,
+            qty=order.quantity,
+            stop_price=order.stop_price
+        )
+
         if result:
             order.status = OrderStatus.SUBMITTED
-            order.broker_order_id = str(result.get('order_id', ''))
+            order.broker_order_id = str(result.get('order_id'))
             order.updated_at = datetime.now()
         else:
             order.status = OrderStatus.REJECTED
-            order.error_message = "Stop order failed"
-        
+            order.error_message = "Stop order gagal"
+
         return order
     
     def _place_bracket_orders(self, order: Order, connector):
-        """Place SL/TP orders after main order fills"""
+        close_side = 'SELL' if order.side == OrderSide.BUY else 'BUY'
+
         if order.stop_loss > 0:
-            close_side = 'SELL' if order.side == OrderSide.BUY else 'BUY'
-            if order.broker == BrokerType.BINANCE:
-                connector.place_stop_loss(
+            sl_result = connector.place_stop_loss(
+                symbol=order.symbol,
+                side=close_side,
+                quantity=order.filled_quantity,
+                stop_price=order.stop_loss
+            )
+            if not sl_result:
+                logger.error("STOP LOSS GAGAL → FORCE CLOSE")
+                connector.place_market_order(
                     symbol=order.symbol,
                     side=close_side,
-                    quantity=order.filled_quantity,
-                    stop_price=order.stop_loss
+                    qty=order.filled_quantity
                 )
-        
+                return
+
         if order.take_profit > 0:
-            close_side = 'SELL' if order.side == OrderSide.BUY else 'BUY'
-            if order.broker == BrokerType.BINANCE:
-                connector.place_take_profit(
+            tp_result = connector.place_take_profit(
+                symbol=order.symbol,
+                side=close_side,
+                quantity=order.filled_quantity,
+                take_profit_price=order.take_profit
+            )
+            if not tp_result:
+                logger.error("TAKE PROFIT GAGAL → FORCE CLOSE")
+                connector.place_market_order(
                     symbol=order.symbol,
                     side=close_side,
-                    quantity=order.filled_quantity,
-                    take_profit_price=order.take_profit
+                    qty=order.filled_quantity
                 )
+                return
     
     def _execute_paper_order(self, order: Order) -> Order:
-        """Execute order in paper trading mode"""
-        # Get current price (simulated)
-        fill_price = order.price if order.price > 0 else 50000.0  # Default price
-        
+        import random
+        import time
+
+        # ========================
+        # 1. Ambil market price
+        # ========================
+        base_price = self._get_market_price(order)
+
+        # ========================
+        # 2. Spread (0.02%)
+        # ========================
+        spread = 0.0002 * base_price
+
+        # ========================
+        # 3. Slippage
+        # ========================
+        slippage = random.uniform(-0.0005, 0.0005) * base_price
+
+        # ========================
+        # 4. Simulate latency (optional)
+        # ========================
+        # time.sleep(random.uniform(0.05, 0.2))
+
+        # ========================
+        # 5. Apply BUY / SELL logic
+        # ========================
+        if order.side == OrderSide.BUY:
+            execution_price = base_price + spread + slippage
+        else:
+            execution_price = base_price - spread + slippage
+
+        # ========================
+        # 6. Simulate rejection (2%)
+        # ========================
+        if random.random() < 0.02:
+            order.status = OrderStatus.REJECTED
+            order.error_message = "Simulated rejection"
+            return order
+
+        # ========================
+        # 7. Final fill
+        # ========================
         order.status = OrderStatus.FILLED
         order.filled_quantity = order.quantity
-        order.avg_fill_price = fill_price
+        order.avg_fill_price = execution_price
         order.broker_order_id = f"PAPER-{order.id}"
         order.updated_at = datetime.now()
-        
-        # Update paper position
+
+        # ========================
+        # 🚫 IMPORTANT: NO BALANCE UPDATE HERE
+        # ========================
+        # Balance tidak boleh diubah saat entry
+        # PnL akan dihitung saat posisi close di:
+        # _update_position_from_order()
+
+        # ========================
+        # 8. Update position (THIS handles PnL)
+        # ========================
         self._update_position_from_order(order)
-        
-        logger.info(f"Paper order filled: {order.side.value} {order.quantity} {order.symbol} @ {fill_price}")
-        
+
+        # ========================
+        # 9. Logging
+        # ========================
+        logger.info(
+            f"[PAPER] {order.side.value} {order.quantity} {order.symbol} @ {execution_price}"
+        )
+
         return order
     
+    def _normalize_symbol(self, symbol: str) -> str:
+        return symbol.replace("/", "").upper()
+
     def _update_position_from_order(self, order: Order):
         """Update position based on filled order"""
-        key = f"{order.broker.value}_{order.symbol}"
+        key = f"{order.broker.value.lower()}_{self._normalize_symbol(order.symbol)}"
         
         with self._lock:
             if key in self._positions:
@@ -512,16 +592,50 @@ class ExecutionEngine:
                     pos.quantity = total_qty
                 else:
                     # Reducing or closing position
-                    if order.filled_quantity >= pos.quantity:
-                        # Close position
+                    if order.filled_quantity > pos.quantity:
+                        # CLOSE + REVERSE
+                        closed_qty = pos.quantity
+
+                        realized_pnl = (order.avg_fill_price - pos.entry_price) * closed_qty
+                        if pos.side == OrderSide.SELL:
+                            realized_pnl = -realized_pnl
+
+                        self._daily_pnl += realized_pnl
+
+                        remaining_qty = order.filled_quantity - closed_qty
+
+                        # buka posisi baru (reverse)
+                        self._positions[key] = Position(
+                            symbol=order.symbol,
+                            side=order.side,
+                            quantity=remaining_qty,
+                            entry_price=order.avg_fill_price,
+                            stop_loss=order.stop_loss,
+                            take_profit=order.take_profit,
+                            broker=order.broker
+                        )
+
+                    elif order.filled_quantity == pos.quantity:
+                        # CLOSE ONLY
                         realized_pnl = (order.avg_fill_price - pos.entry_price) * pos.quantity
                         if pos.side == OrderSide.SELL:
                             realized_pnl = -realized_pnl
+
                         self._daily_pnl += realized_pnl
                         del self._positions[key]
+
                     else:
-                        # Partial close
-                        pos.quantity -= order.filled_quantity
+                        # PARTIAL CLOSE
+                        closed_qty = order.filled_quantity
+
+                        realized_pnl = (order.avg_fill_price - pos.entry_price) * closed_qty
+                        if pos.side == OrderSide.SELL:
+                            realized_pnl = -realized_pnl
+
+                        self._daily_pnl += realized_pnl
+
+                        pos.quantity -= closed_qty
+
             else:
                 # New position
                 self._positions[key] = Position(
@@ -533,39 +647,49 @@ class ExecutionEngine:
                     take_profit=order.take_profit,
                     broker=order.broker
                 )
-    
+
+    def update_unrealized_pnl(self):
+        """Update unrealized PnL untuk semua posisi."""
+        for pos in self._positions.values():
+            market_price = self._get_market_price_from_symbol(pos.symbol, pos.side)
+
+            pnl = (market_price - pos.entry_price) * pos.quantity
+
+            if pos.side == OrderSide.SELL:
+                pnl = -pnl
+
+            pos.current_price = market_price
+            pos.unrealized_pnl = pnl
+
     def cancel_order(self, order_id: str) -> bool:
-        """Cancel an order"""
+        """Cancel an order (broker-agnostic)"""
+
         if order_id not in self._orders:
             return False
-        
+
         order = self._orders[order_id]
-        
+
         if order.status not in [OrderStatus.PENDING, OrderStatus.SUBMITTED]:
             return False
-        
+
         if order.broker == BrokerType.PAPER:
             order.status = OrderStatus.CANCELLED
             return True
-        
+
         connector = self._connectors.get(order.broker)
+
         if not connector or not order.broker_order_id:
             return False
-        
+
         try:
-            if order.broker == BrokerType.BINANCE:
-                success = connector.cancel_order(order.symbol, int(order.broker_order_id))
-            elif order.broker == BrokerType.MT5:
-                success = connector.cancel_order(int(order.broker_order_id))
-            else:
-                success = False
-            
+            success = connector.cancel_order(order.broker_order_id)
+
             if success:
                 order.status = OrderStatus.CANCELLED
                 order.updated_at = datetime.now()
-            
+
             return success
-            
+
         except Exception as e:
             logger.error(f"Failed to cancel order: {e}")
             return False
@@ -574,7 +698,7 @@ class ExecutionEngine:
     
     def get_position(self, symbol: str, broker: str = "paper") -> Optional[Position]:
         """Get position for a symbol"""
-        key = f"{broker}_{symbol}"
+        key = f"{broker.lower()}_{self._normalize_symbol(symbol)}"
         return self._positions.get(key)
     
     def get_all_positions(self) -> List[Position]:
@@ -627,8 +751,14 @@ class ExecutionEngine:
         """Get daily realized PnL"""
         return self._daily_pnl
     
+    def get_equity(self) -> float:
+        self.update_unrealized_pnl()
+        unrealized = sum(p.unrealized_pnl for p in self._positions.values())
+        return self._paper_balance + self._daily_pnl + unrealized
+
     def get_paper_balance(self) -> float:
         """Get paper trading balance"""
+        self.update_unrealized_pnl()
         return self._paper_balance + self._daily_pnl
     
     # ==================== CALLBACKS ====================

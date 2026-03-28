@@ -14,7 +14,7 @@ execution_api = Blueprint('execution_api', __name__, url_prefix='/api/execution'
 
 def get_execution_engine():
     """Get execution engine instance."""
-    from core.live_execution_engine import get_execution_engine, ExecutionConfig, ExecutionMode
+    from core.execution_engine import ExecutionEngine, ExecutionConfig, ExecutionMode
     return get_execution_engine()
 
 

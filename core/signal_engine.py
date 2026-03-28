@@ -19,6 +19,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from core.fusion_confidence import calculate_fusion_confidence
 import functools
+from core.regime_detector import RegimeDetector, Regime
 
 class SignalType(Enum):
     BUY = "BUY"
@@ -127,9 +128,8 @@ class AISignalEngine:
         'gann': 0.30,       # ← naik 5%
         'astro': 0.10,      # ← turun 5% (belum tervalidasi)
         'ehlers': 0.30,     # ← naik 10% (setelah fix QW1)
-        'ml': 0.00,         # ← DISABLED sampai model sungguhan siap
-        'pattern': 0.15,    # ← naik 5% (setelah fix QW3)
-        'options_flow': 0.05
+        'ml': 0.10,         # ← DISABLED sampai model sungguhan siap
+        'pattern': 0.20     # ← naik 5% (setelah fix QW3)
     }
     
     # Default timeouts for each analysis module (in seconds)
@@ -145,7 +145,7 @@ class AISignalEngine:
         self.config = config or {}
         self.weights = self.config.get('weights', self.DEFAULT_WEIGHTS.copy())
         self.timeouts = self.config.get('timeouts', self.DEFAULT_TIMEOUTS.copy())
-        
+        self.regime_detector = RegimeDetector()
         # Initialize engines (lazy loading)
         self._gann_engine = None
         self._astro_engine = None
@@ -269,7 +269,37 @@ class AISignalEngine:
         # DEBUG (optional tapi penting)
         # =============================
         for c in components:
+            pass
 
+        regime_state = self.regime_detector.detect(data)
+        regime = regime_state.primary_regime
+
+        if regime == Regime.TRENDING:
+            self.weights.update({
+                'gann': 0.35,
+                'ehlers': 0.40,
+                'pattern': 0.15,
+                'astro': 0.05,
+                'ml': 0.05
+            })
+
+        elif regime == Regime.RANGING:
+            self.weights.update({
+                'gann': 0.40,
+                'ehlers': 0.25,
+                'pattern': 0.15,
+                'astro': 0.10,
+                'ml': 0.10
+            })
+
+        elif regime == Regime.CRISIS:
+            self.weights.update({
+                'gann': 0.20,
+                'ehlers': 0.20,
+                'pattern': 0.10,
+                'astro': 0.10,
+                'ml': 0.00
+            })
 
         # =============================
         # ✅ Fusion Engine
@@ -927,7 +957,12 @@ class AISignalEngine:
 
         return signal, min(95, confidence), strength
     
-    def _calculate_levels(self, data: pd.DataFrame, signal: SignalType, current_price: float) -> Tuple[float, float, float]:
+    def _calculate_levels(
+        self, 
+        data: pd.DataFrame, 
+        signal: SignalType, 
+        current_price: float
+    ) -> Tuple[float, float, float]:
 
         if len(data) < 20:
             if signal in [SignalType.BUY, SignalType.STRONG_BUY]:
@@ -942,47 +977,48 @@ class AISignalEngine:
 
         tr = pd.concat([
             high - low,
-            abs(high - close.shift(1)),
-            abs(low - close.shift(1))
+            (high - close.shift(1)).abs(),
+            (low - close.shift(1)).abs()
         ], axis=1).max(axis=1)
 
-        atr = tr.rolling(14).mean().iloc[-1]
+        atr_series = tr.rolling(14).mean().dropna()
+        if len(atr_series) == 0:
+            return current_price, current_price, current_price
 
-        # === VOLATILITY PERCENTILE ===
-        tr_series = tr.dropna()
+        atr = atr_series.iloc[-1]
 
-        if len(tr_series) >= 100:
-            percentile = (tr_series < tr.iloc[-1]).mean() * 100
+        # === VOLATILITY PERCENTILE (pakai ATR konsisten) ===
+        if len(atr_series) >= 100:
+            percentile = (atr_series < atr).mean()
         else:
-            percentile = 50
+            percentile = 0.5
 
-        # === DYNAMIC MULTIPLIER ===
-        p = percentile / 100.0
-        sl_mult = 1.2 + (p * 1.0)
-        tp_mult = 2.0 + (p * 1.8)
+        # === DYNAMIC MULTIPLIER (single source of truth) ===
+        sl_mult = 1.2 + (percentile * 1.0)
+        tp_mult = 2.0 + (percentile * 1.8)
 
-        # === VOLATILITY FILTER ===
-        volatility_ratio = atr / tr_series.mean()
-
-        if volatility_ratio > 1.5:
-            sl_mult *= 0.9
-            tp_mult *= 0.9
+        # === VOL FILTER (safe) ===
+        mean_tr = tr.mean()
+        if mean_tr > 0:
+            volatility_ratio = atr / mean_tr
+            if volatility_ratio > 1.5:
+                sl_mult *= 0.9
+                tp_mult *= 0.9
 
         # === APPLY LEVELS ===
+        entry = current_price
+
         if signal in [SignalType.BUY, SignalType.STRONG_BUY]:
-            entry = current_price
-            stop_loss = current_price - (atr * sl_mult)
-            take_profit = current_price + (atr * tp_mult)
+            stop_loss = entry - (atr * sl_mult)
+            take_profit = entry + (atr * tp_mult)
 
         elif signal in [SignalType.SELL, SignalType.STRONG_SELL]:
-            entry = current_price
-            stop_loss = current_price + (atr * sl_mult)
-            take_profit = current_price - (atr * tp_mult)
+            stop_loss = entry + (atr * sl_mult)
+            take_profit = entry - (atr * tp_mult)
 
         else:
-            entry = current_price
-            stop_loss = current_price
-            take_profit = current_price
+            stop_loss = entry
+            take_profit = entry
 
         return round(entry, 4), round(stop_loss, 4), round(take_profit, 4)
     

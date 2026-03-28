@@ -120,7 +120,7 @@ def initialize_components():
         print(f"   ✗ Execution Gate - {e}")
     
     try:
-        from core.live_execution_engine import get_execution_engine
+        from core.execution_engine import ExecutionEngine
         engine = get_execution_engine()
         components.append(('Execution Engine', True))
         print("   ✓ Execution Engine")

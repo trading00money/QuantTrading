@@ -356,6 +356,54 @@ class MetaTraderConnector:
             return [p for p in self._positions.values() if p.symbol == symbol]
         return list(self._positions.values())
     
+    # def place_order(
+    #     self,
+    #     symbol: str,
+    #     order_type: str,
+    #     volume: float,
+    #     price: float = None,
+    #     sl: float = None,
+    #     tp: float = None,
+    #     comment: str = ""
+    # ) -> Optional[int]:
+    #     """
+    #     Place a new order.
+        
+    #     Args:
+    #         symbol: Trading symbol
+    #         order_type: 'BUY' or 'SELL'
+    #         volume: Position size in lots
+    #         price: Entry price (for pending orders)
+    #         sl: Stop loss price
+    #         tp: Take profit price
+    #         comment: Order comment
+            
+    #     Returns:
+    #         Order ticket on success, None on failure
+    #     """
+    #     command = {
+    #         "action": "ORDER_SEND",
+    #         "symbol": symbol,
+    #         "type": order_type.upper(),
+    #         "volume": volume,
+    #         "sl": sl or 0.0,
+    #         "tp": tp or 0.0,
+    #         "comment": comment
+    #     }
+        
+    #     if price:
+    #         command["price"] = price
+        
+    #     response = self._send_command(command)
+        
+    #     if response and response.get("status") == "OK":
+    #         ticket = response.get("ticket")
+    #         logger.success(f"Order placed: {symbol} {order_type} {volume} lots (ticket: {ticket})")
+    #         return ticket
+        
+    #     logger.error(f"Order failed: {response}")
+    #     return None
+    
     def place_order(
         self,
         symbol: str,
@@ -365,45 +413,97 @@ class MetaTraderConnector:
         sl: float = None,
         tp: float = None,
         comment: str = ""
-    ) -> Optional[int]:
-        """
-        Place a new order.
-        
-        Args:
-            symbol: Trading symbol
-            order_type: 'BUY' or 'SELL'
-            volume: Position size in lots
-            price: Entry price (for pending orders)
-            sl: Stop loss price
-            tp: Take profit price
-            comment: Order comment
-            
-        Returns:
-            Order ticket on success, None on failure
-        """
-        command = {
-            "action": "ORDER_SEND",
+    ):
+        import MetaTrader5 as mt5
+
+        # ========================
+        # ENSURE MT5 CONNECTED
+        # ========================
+        if not mt5.initialize():
+            logger.error(f"MT5 init failed: {mt5.last_error()}")
+            return None
+
+        # ========================
+        # SYMBOL CHECK
+        # ========================
+        if not mt5.symbol_select(symbol, True):
+            logger.error(f"Symbol tidak tersedia: {symbol}")
+            return None
+
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is None:
+            logger.error("Tick data tidak tersedia")
+            return None
+
+        # ========================
+        # PRICE LOGIC
+        # ========================
+        if order_type == "BUY":
+            price = tick.ask
+            order_type_mt5 = mt5.ORDER_TYPE_BUY
+        elif order_type == "SELL":
+            price = tick.bid
+            order_type_mt5 = mt5.ORDER_TYPE_SELL
+        else:
+            logger.error("Order type tidak valid")
+            return None
+
+        # ========================
+        # VALIDASI SL / TP
+        # ========================
+        info = mt5.symbol_info(symbol)
+        point = info.point
+        min_distance = info.trade_stops_level * point
+
+        if sl:
+            if abs(price - sl) < min_distance:
+                logger.error(f"SL terlalu dekat (min: {min_distance})")
+                return None
+
+        if tp:
+            if abs(price - tp) < min_distance:
+                logger.error(f"TP terlalu dekat (min: {min_distance})")
+                return None
+
+        # ========================
+        # REQUEST
+        # ========================
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
-            "type": order_type.upper(),
             "volume": volume,
-            "sl": sl or 0.0,
-            "tp": tp or 0.0,
-            "comment": comment
+            "type": order_type_mt5,
+            "price": price,
+            "sl": sl,
+            "tp": tp,
+            "deviation": 20,
+            "magic": 123456,
+            "comment": comment or "python trade",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
         }
-        
-        if price:
-            command["price"] = price
-        
-        response = self._send_command(command)
-        
-        if response and response.get("status") == "OK":
-            ticket = response.get("ticket")
-            logger.success(f"Order placed: {symbol} {order_type} {volume} lots (ticket: {ticket})")
-            return ticket
-        
-        logger.error(f"Order failed: {response}")
-        return None
-    
+
+        result = mt5.order_send(request)
+
+        # ========================
+        # VALIDASI RESULT (WAJIB)
+        # ========================
+        if result is None:
+            logger.error(f"Order_send gagal: {mt5.last_error()}")
+            return None
+
+        if result.retcode != mt5.TRADE_RETCODE_DONE:
+            logger.error(f"Order gagal: {result.retcode} | {result.comment}")
+            return None
+
+        logger.success(f"Order sukses: {symbol} {order_type} {volume}")
+
+        return {
+            "order_id": result.order,
+            "price": result.price,
+            "filled_qty": volume
+        }
+
     def close_position(self, ticket: int, volume: float = None) -> bool:
         """
         Close a position.
@@ -456,26 +556,168 @@ class MetaTraderConnector:
         response = self._send_command(command)
         return response and response.get("status") == "OK"
     
-    def get_price(self, symbol: str) -> Optional[Dict]:
+    def get_price(self, symbol: str) -> Dict:
         """
-        Get current bid/ask prices.
-        
-        Args:
-            symbol: Trading symbol
-            
-        Returns:
-            Dict with bid, ask, spread
+        Standardized price format:
+        {
+            "bid": float,
+            "ask": float
+        }
         """
         response = self._send_command({
             "action": "GET_PRICE",
             "symbol": symbol
         })
-        
-        if response and response.get("status") == "OK":
-            return response.get("data")
-        
-        return None
+
+        if not response or response.get("status") != "OK":
+            raise RuntimeError(f"Failed to get price for {symbol}")
+
+        data = response.get("data", {})
+
+        bid = data.get("bid")
+        ask = data.get("ask")
+
+        if bid is None or ask is None:
+            raise ValueError(f"Incomplete price data from MT5: {data}")
+
+        return {
+            "bid": float(bid),
+            "ask": float(ask)
+        }
     
+    def place_market_order(self, symbol, side, qty, stop_loss=None, take_profit=None):
+        import MetaTrader5 as mt5
+
+        tick = mt5.symbol_info_tick(symbol)
+        price = tick.ask if side == "BUY" else tick.bid
+
+        # 🔥 TAMBAHKAN DI SINI
+        info = mt5.symbol_info(symbol)
+        point = info.point
+        min_distance = info.trade_stops_level * point
+        logger.warning(f"Min stop distance: {min_distance}")
+        if stop_loss:
+            if abs(price - stop_loss) < min_distance:
+                raise ValueError(f"SL terlalu dekat (min distance: {min_distance})")
+
+        if take_profit:
+            if abs(price - take_profit) < min_distance:
+                raise ValueError(f"TP terlalu dekat (min distance: {min_distance})")
+
+        # ========================
+        # REQUEST
+        # ========================
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": symbol,
+            "volume": qty,
+            "type": mt5.ORDER_TYPE_BUY if side == "BUY" else mt5.ORDER_TYPE_SELL,
+            "price": price,
+            "sl": stop_loss,
+            "tp": take_profit,
+            "deviation": 20,
+            "magic": 123456,
+            "comment": "auto trade",
+            "type_time": mt5.ORDER_TIME_GTC,
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+
+        result = mt5.order_send(request)
+
+        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            return None
+
+        return {
+            "order_id": result.order,
+            "price": result.price,
+            "filled_qty": qty
+        }
+
+    def place_limit_order(self, symbol, side, qty, price, stop_loss=None, take_profit=None):
+        import MetaTrader5 as mt5
+
+        # ========================
+        # VALIDASI STOP LEVEL
+        # ========================
+        info = mt5.symbol_info(symbol)
+        point = info.point
+        min_distance = info.trade_stops_level * point
+
+        if stop_loss:
+            if abs(price - stop_loss) < min_distance:
+                raise ValueError(f"SL terlalu dekat (min: {min_distance})")
+
+        if take_profit:
+            if abs(price - take_profit) < min_distance:
+                raise ValueError(f"TP terlalu dekat (min: {min_distance})")
+
+        # ========================
+        # SEND ORDER
+        # ========================
+        result = self.place_order(
+            symbol=symbol,
+            order_type=side,
+            volume=qty,
+            price=price,
+            sl=stop_loss,
+            tp=take_profit
+        )
+
+        # ========================
+        # VALIDASI RESULT
+        # ========================
+        if result is None:
+            return None
+
+        # kalau place_order kamu return result MT5:
+        if hasattr(result, "retcode"):
+            if result.retcode != mt5.TRADE_RETCODE_DONE:
+                return None
+
+            order_id = result.order
+        else:
+            # fallback kalau cuma ticket
+            order_id = result
+
+        return {
+            "order_id": order_id,
+            "price": price,
+            "filled_qty": 0,  # limit order belum tentu filled
+            "status": "SUBMITTED"
+        }
+
+    def place_stop_loss(self, symbol, side, quantity, stop_price):
+        # MT5 tidak perlu order baru → modify posisi
+        positions = [p for p in self.get_positions(symbol) if p.type == side]
+
+        if not positions:
+            return None
+
+        ticket = positions[0].ticket
+
+        success = self.modify_position(ticket, sl=stop_price)
+
+        if not success:
+            return None
+
+        return {"order_id": ticket}
+
+
+    def place_take_profit(self, symbol, side, quantity, take_profit_price):
+        positions = [p for p in self.get_positions(symbol) if p.type == side]
+
+        if not positions:
+            return None
+
+        ticket = positions[0].ticket
+
+        success = self.modify_position(ticket, tp=take_profit_price)
+
+        if not success:
+            return None
+
+        return {"order_id": ticket}
+
     def get_history(
         self,
         symbol: str,
